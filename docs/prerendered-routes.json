@@ -1,0 +1,11 @@
+{
+  "routes": [
+    "/",
+    "/about",
+    "/admin",
+    "/admin/dashboard",
+    "/characters",
+    "/download",
+    "/register"
+  ]
+}

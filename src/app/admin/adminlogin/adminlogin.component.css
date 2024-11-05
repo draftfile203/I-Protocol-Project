@@ -1,0 +1,49 @@
+section {
+    height: 80vh;
+    align-items: center;
+    justify-content: center;
+    display: flex;
+}
+
+.adminlogin {
+    display: flex;
+    width: 600px;
+    height: 40vh;
+    flex-direction: column;
+    background-color:rgb(29,24,25);
+    padding: 20px;
+    align-items: center;
+    border-radius: 16px;
+} 
+
+h1{ 
+    color: white;
+    font-size: 40px;
+    margin-top: 8px;
+}
+
+input {
+    width: 280px;
+    height: 5vh;
+    background-color: white;
+    border-radius: 4px;
+    font-size: 16px;
+    border: 2px solid rgb(153, 153, 134);
+}
+
+button {
+    cursor: pointer;
+    width: 240px;
+    height: 5vh;
+    background-color: white;
+    margin-top: 12px;
+    border-radius: 8px;
+    font-size: 20px;
+}
+
+button:hover {
+    background-color: rgb(29,24,25);
+    border : 2px solid beige;
+    transition: 0.5s;
+    color: beige;
+}

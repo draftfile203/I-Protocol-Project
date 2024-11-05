@@ -1,0 +1,24 @@
+.card {
+    background-color: rgb(29,24,25);
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    border-radius: 8px;
+    padding-top: 16px;
+    border: 2px solid beige;
+    padding-bottom: 4px;
+    max-width: 400px;
+}
+
+.card img {
+    width: 250px;
+    height: 350px;
+}
+
+h1 {
+    color: beige;
+}
+
+p{
+    color: rgb(180, 162, 162);
+}

@@ -1,0 +1,69 @@
+section {
+    width: 100%;
+    height: 80vh;
+    align-items: center;
+    justify-content: center;
+}
+
+form {
+    max-width: 800px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin: auto;
+    background-color:rgb(29,24,25) ;
+    position: relative;
+    top: 160px;
+    height: 50vh;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 20px;
+}
+.inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+label {
+    color: beige;
+    font-size: 32px;
+}
+
+input {
+    width: 400px;
+    height: 4vh;
+    background-color: beige;
+}
+
+button {
+    cursor: pointer;
+    background-color: beige;
+    padding: 16px;
+    border-radius: 12px;
+}
+
+button:hover {
+    color: beige;
+    background-color: rgb(29,24,25);
+    transition: 0.5s;
+    border: 2px solid beige;
+}
+
+.character-item {
+    cursor: pointer;
+    padding: 5px;
+    border: 1px solid #ccc;
+    margin: 5px 0;
+    display: flex;
+    flex-direction: column;
+    background-color: rgb(177, 177, 164);
+    border-radius: 4px;
+    color:rgb(29,24,25) ;
+    padding: 8px 0;
+}
+
+.character-item:hover {
+    background-color: beige;
+    transition: 0.5s;
+}
+

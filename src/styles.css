@@ -1,0 +1,20 @@
+* {
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    list-style: none;
+}
+
+body {
+    /* background-image: url(https://wallpapers.com/images/hd/red-forest-on-black-horror-3xti03pu0fv1tcnx.jpg); */
+   /* background-image: url(https://miro.medium.com/v2/resize:fit:2000/1*Q3ABktsXhJHgCZtBrF-l7g.jpeg); */
+   /* background-image: url(https://files.oaiusercontent.com/file-eMm1Cz1ccBZD6KxwFxCv0f4v?se=2024-10-25T21%3A28%3A21Z&sp=r&sv=2024-08-04&sr=b&rscc=max-age%3D604800%2C%20immutable%2C%20private&rscd=attachment%3B%20filename%3Da2de2fee-6379-4e04-aec4-7801b13c0d0d.webp&sig=tnxu2I0aNra39Df3l%2Bh2FqS3LhaIJYZYZmhorfO%2BqP8%3D); */
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-image: url(https://i.postimg.cc/50BWwPMf/DALL-E-2024-11-03-17-30-17-A-dark-abandoned-town-in-a-horror-setting-called-Hollowpoint-The-stre.webp);
+  /* background-image: url(https://images.pond5.com/horror-movie-film-halloween-scary-footage-285213781_iconl.jpeg); */
+
+background-color: rgb(58, 17, 17);
+  }

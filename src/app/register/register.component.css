@@ -1,0 +1,51 @@
+section {
+    height: 80vh;
+    align-items: center;
+    justify-content: center;
+    display: flex;
+}
+
+.registerCard {
+    display: flex;
+    width: 600px;
+    height: 42vh;
+    flex-direction: column;
+    background-color:rgb(29,24,25);
+    
+    padding: 20px;
+    align-items: center;
+    gap: 16px;
+    border-radius: 16px;
+} 
+
+h1{ 
+    color: beige;
+    font-size: 44px;
+    margin-top: 8px;
+}
+
+input {
+    width: 280px;
+    height: 5vh;
+    background-color: beige;
+    border-radius: 4px;
+    font-size: 16px;
+    border: 2px solid rgb(153, 153, 134);
+}
+
+button {
+    cursor: pointer;
+    width: 240px;
+    height: 5vh;
+    background-color: beige;
+    margin-top: 12px;
+    border-radius: 8px;
+    font-size: 20px;
+}
+
+button:hover {
+    background-color: rgb(29,24,25);
+    border : 2px solid beige;
+    transition: 0.5s;
+    color: beige;
+}

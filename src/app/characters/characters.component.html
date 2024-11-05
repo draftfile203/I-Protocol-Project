@@ -1,0 +1,13 @@
+<section>
+    <div class="container" >
+        <div *ngIf="isLoading" class="loading-spinner">
+            <div class="spinner"></div>
+        </div>
+        <div *ngIf="!isLoading" class="card">
+        <app-characters-card *ngFor="let characters of charactersList | slice:0:displayedCharactersCount" [characters]="characters"></app-characters-card>
+        </div>
+    
+        <button *ngIf="displayedCharactersCount < charactersList.length" (click)="showMore()">Show more</button>
+
+    </div>
+</section>

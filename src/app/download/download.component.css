@@ -1,0 +1,93 @@
+/* section {
+    height: 80vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+h1 {
+    font-size: 40px;
+    margin-top: 40px;
+    color: rgb(133, 37, 37);
+}
+
+.card {
+    display: flex;
+    margin-top: 140px;
+    gap: 80px;
+}
+
+.downloadCard {
+    display: flex;
+    flex-direction: column;
+    background-color: rgb(70, 57, 60);;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    border: 3px solid black;
+    border-radius: 20px;
+}
+
+button {
+    margin-top: 28px;
+    padding: 8px;
+    background-color: rgb(97, 20, 20);
+    border-radius: 16px;
+    border: 2px solid black;
+}
+
+button:hover {
+    cursor: pointer;
+    background-color: brown;
+    transition: 0.5s;
+} */
+
+
+section {
+    height: 80vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+h1 {
+    font-size: 40px;
+    margin-top: 40px;
+    color: beige;
+    background-color: rgb(29,24,25);
+    padding: 8px;
+    border-radius: 8px;
+}
+
+.card {
+    display: flex;
+    margin-top: 140px;
+    gap: 80px;
+}
+
+.downloadCard {
+    display: flex;
+    flex-direction: column;
+    background-color: rgb(29,24,25);
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    border: 3px solid black;
+    border-radius: 20px;
+}
+
+button {
+    margin-top: 28px;
+    padding: 8px;
+    background-color: beige;
+    border-radius: 16px;
+    border: 2px solid black;
+}
+
+button:hover {
+    cursor: pointer;
+    background-color: rgb(29,24,25);
+    transition: 0.5s;
+    color: beige;
+    border: 2px solid beige;
+}

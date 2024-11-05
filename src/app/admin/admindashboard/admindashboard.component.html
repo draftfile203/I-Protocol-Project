@@ -1,0 +1,27 @@
+<section>
+    <form [formGroup]="characterForm">
+        <div class="inputs">
+        <label for="img">IMAGE URL:</label>
+        <input  id="img" formControlName="img" type="text">
+
+        <label for="name">NAME:</label>
+        <input id="name" formControlName="name" type="text">
+
+        <label for="role">ROLE:</label>
+        <input id="role"  formControlName="role" type="text">
+
+        <button type="button" (click)="onAdd()">Add character</button>
+        <button type="button" (click)="onUpdate()" [disabled]="!selectedCharacterId">Update character</button>
+       <button type="button" (click)="onDelete()" [disabled]="!selectedCharacterId">Delete character</button>
+        </div>
+<div class="characters">
+       <div *ngFor = "let character of characters" class="character-item">
+        <p (click)="selectCharacter(character,character.id)">
+         {{character.name}} ({{character.role}})
+        </p>
+ </div> 
+</div>
+    </form>
+
+   
+</section>
