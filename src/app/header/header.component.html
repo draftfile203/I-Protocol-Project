@@ -1,11 +1,29 @@
 <header>
-    <!-- <img src="https://t3.ftcdn.net/jpg/03/71/70/42/360_F_371704205_9g2jV4qLWbJCzqEGEwzLlHqCuJfkqvsq.jpg" alt="logo"> -->
+    <!-- Logo -->
     <img src="https://i.postimg.cc/N0LKcsJ2/wewe.jpg" alt="logo">
-    <!-- <img src="https://www.creativefabrica.com/wp-content/uploads/2022/03/11/simple-grim-reaper-vector-logo-Graphics-26952199-1-312x208.png" alt="logo"> -->
-    <nav>
-        <a routerLink="">Home</a>
-        <a routerLink="/about">About</a>
-        <a routerLink="/characters">Characters</a>
-        <a class="register" routerLink="/register">Register</a>
+    
+    <!-- Burger Menu Button -->
+    <button class="burger-menu" (click)="toggleMenu()">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+  
+    <!-- Navigation -->
+    <nav [class.active]="menuOpen">
+      <a routerLink="" class="nav" (click)="closeMenu()">HOME</a>
+      <a routerLink="/about" class="nav" (click)="closeMenu()">BOUT</a>
+      <a routerLink="/characters" class="nav" (click)="closeMenu()">CTERS</a>
+      <a routerLink="packs" class="nav" (click)="closeMenu()">ACKS</a>
+      <a class="register" routerLink="/register" (click)="closeMenu()">STER</a>
+      <a class="login" routerLink="/login" (click)="closeMenu()">OGIN</a>
+      <a routerLink="cart" class="cart" (click)="closeMenu()">
+        <img src="https://img.icons8.com/sf-black-filled/50/shopping-cart.png" alt="cart">
+        <span *ngIf="cartItemCount > 0" class="cart-count">{{ cartItemCount }}</span>
+      </a>
+  
+      <!-- Language Switcher -->
+     
     </nav>
-</header>
+  </header>
+  

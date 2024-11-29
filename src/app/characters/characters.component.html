@@ -1,13 +1,14 @@
 <section>
+    <input class="searchBar" type="text" placeholder="Search Characters..." [(ngModel)]="searchTerm" (input)="onSearchChange()">
     <div class="container" >
         <div *ngIf="isLoading" class="loading-spinner">
             <div class="spinner"></div>
         </div>
         <div *ngIf="!isLoading" class="card">
-        <app-characters-card *ngFor="let characters of charactersList | slice:0:displayedCharactersCount" [characters]="characters"></app-characters-card>
+        <app-characters-card *ngFor="let characters of filteredCharacterList | slice:0:displayedCharactersCount" [characters]="characters"></app-characters-card>
         </div>
     
-        <button *ngIf="displayedCharactersCount < charactersList.length" (click)="showMore()">Show more</button>
+        <button *ngIf="displayedCharactersCount < filteredCharacterList.length" (click)="showMore()">Show more</button>
 
     </div>
 </section>

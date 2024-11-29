@@ -44,7 +44,7 @@ button:hover {
 
 
 section {
-    height: 80vh;
+    min-height: 82vh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -63,6 +63,7 @@ h1 {
     display: flex;
     margin-top: 140px;
     gap: 80px;
+    padding: 40px;
 }
 
 .downloadCard {
@@ -90,4 +91,39 @@ button:hover {
     transition: 0.5s;
     color: beige;
     border: 2px solid beige;
+}
+
+@media screen and (min-height: 964px) {
+    section {
+        min-height: 84vh;
+    }    
+}
+
+
+@media screen and (min-height: 1100px) {
+    section {
+        min-height: 86vh;
+    }    
+}
+
+
+@media screen and (min-height: 1280px) {
+    section {
+        min-height: 88vh;
+    }    
+}
+
+@media screen and (min-width: 1500px) {
+    .downloadCard {
+        padding: 80px;
+    }
+    button {
+        padding: 20px;
+    }
+}
+
+@media screen and (max-width: 600px) {
+    .card {
+        flex-direction: column;
+    }
 }

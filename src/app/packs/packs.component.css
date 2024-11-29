@@ -1,0 +1,99 @@
+section {
+    display: flex;
+    max-width: 1200px;
+    min-height: 80vh;
+    align-items: center;
+    justify-content: center;
+    margin: auto;
+}
+
+.packs {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 40px;
+    padding: 40px;
+
+}
+
+.pack {
+     display: flex;
+     flex-direction: column;
+     padding: 60px 40px;
+     background-color: rgb(29,24,25);
+     width: 400px;
+    min-height: 40vh;
+    gap: 40px;
+    border-radius: 10px;
+}
+
+h1 {
+    color: beige;
+    font-size: 32px;
+}
+
+p {
+    color: rgb(158, 156, 156);
+    font-size: 26px;
+}
+
+li {
+    color: beige;
+    font-size: 20px;
+}
+
+button {
+    padding: 20px;
+    background-color: beige;
+    border-radius: 8px;
+    font-size: 16px;
+}
+
+button:hover {
+    background-color: rgb(29,24,25);
+    border: 2px solid beige;
+    transition: 0.5s;
+    color: beige;
+    cursor: pointer;
+}
+
+/* 
+@media screen and (min-height: 964px) {
+    section {
+        min-height: 84vh;
+    }    
+}
+
+
+@media screen and (min-height: 1100px) {
+    section {
+        min-height: 86vh;
+    }    
+}
+
+
+@media screen and (min-height: 1280px) {
+    section {
+        min-height: 88vh;
+    }    
+} */
+
+@media screen and (max-width: 1300px) {
+    .packs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media screen and (max-width: 900px) {
+    .packs {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .pack {
+     width: 240px;
+    }
+}

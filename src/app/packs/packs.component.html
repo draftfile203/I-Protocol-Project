@@ -1,0 +1,13 @@
+<section>
+    <div class="packs">
+        <div class="pack" *ngFor="let pack of packs">
+            <h1>{{pack.name}}</h1>
+            <p class="price">{{pack.price}} $ <span>{{pack.duration}}</span></p>
+            <ul>
+                <li *ngFor="let feature of pack.features">{{feature}}</li>
+            </ul>
+            <button [disabled]="isInCart(pack)" (click)="addToCart(pack)"> Select {{ pack.name }} </button>
+        </div>
+    </div>
+     
+</section>

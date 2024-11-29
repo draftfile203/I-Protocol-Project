@@ -6,13 +6,12 @@ section {
     display: flex;
 }
 
-.registerCard {
+form {
     display: flex;
     width: 600px;
     height: 42vh;
     flex-direction: column;
     background-color:rgb(29,24,25);
-    
     padding: 20px;
     align-items: center;
     gap: 16px;
@@ -24,6 +23,7 @@ h1{
     font-size: 44px;
     margin-top: 8px;
 }
+
 
 input {
     width: 280px;
@@ -52,8 +52,7 @@ button:hover {
     color: beige;
 }
 
-/* 
-@media screen and (min-height: 964px) {
+/* @media screen and (min-height: 964px) {
     section {
         min-height: 84vh;
     }    
@@ -71,6 +70,9 @@ button:hover {
     section {
         min-height: 88vh;
     }    
+    form {
+        max-height: 32vh;
+    }
 } */
 
 @media screen and (max-height: 900px) {
@@ -83,3 +85,8 @@ button:hover {
     }
 }
 
+@media screen and (min-height: 1200px) {
+    form {
+        max-height: 38vh;
+    }
+}

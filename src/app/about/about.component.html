@@ -2,9 +2,25 @@
     <div class="card">
     <h1>Lore</h1>
     <p><span class="st">The game takes place </span> in a once-thriving, remote town called Hollowpoint, now abandoned after a mysterious event referred to as "The Bleeding." Strange creatures roam the streets, and the survivors face both psychological and physical horror.A malevolent force known only as The Entity awakens once every century, feeding off fear. It manipulates the environment and those trapped within Hollowpoint, blurring the line between reality and nightmare. Each character was drawn to the town for different reasons but is now trapped. They are bound to the town by an ancient curse, forcing them to relive their worst fears over and over again unless they can break free by uncovering the truth behind "The Bleeding."</p>
-    <h2>Story Arc</h2>
+    <h1>Story Arc</h1>
     <p><span class="st2">The game revolves </span> each character's journey to confront their deepest fears. They are presented with moral dilemmas, psychological manipulation, and intense survival scenarios as they piece together the puzzle behind Hollowpoint’s dark history and the true nature of The Bleeding.
         Each character’s story intertwines with the others, revealing their past sins, lost connections, and how their fates are tied to breaking or continuing The Entity’s cycle.
     </p>
  </div>
 </section>
+
+<section>
+  <div  class="questions">
+    <h2>Frequently Asked Questions</h2>
+    <div class="faq-container">
+        <div *ngFor="let faq of faqList; let i = index" class="faq-item">
+          <h3 (click)="toggleAnswer(i)" class="faq-question" [class.active]="faq.showAnswer">
+            {{ faq.question }}
+          </h3>
+    
+          <p  class="faq-answer"  class="faq-answer-container" [class.show]="faq.showAnswer">
+            {{ faq.answer }}
+          </p>
+        </div>
+      </div></div>
+  </section>

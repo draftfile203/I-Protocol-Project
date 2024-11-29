@@ -1,0 +1,14 @@
+<section>
+    <h2>Cart</h2>
+    <div *ngFor="let item of cartItems; let i = index" >
+        <h3>{{item.name}}</h3>
+        <p>Price: ${{item.price}}{{item.duration}}</p>
+        <ul>
+            <li *ngFor="let feature of item.features">{{feature}}</li>
+        </ul>
+
+        <button class="removeBtn" (click)="removeFromCart(i)">x</button>
+        </div>
+<a routerLink="/payment">  <button class="buy" >Buy now - ${{totalPrice}}</button>
+</a>
+</section>

@@ -1,0 +1,110 @@
+section {
+    min-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+h2 {
+    color: beige;
+    background-color: rgb(29,24,25);
+    padding: 8px;
+    font-size: 32px;
+    margin-top: 20px;
+    border-radius: 6px;
+    
+}
+
+div {
+    display: flex;
+    background-color: rgb(29,24,25);
+    gap: 100px;
+    align-items: center;
+    padding: 40px;
+    border-radius: 10px;
+    border: 2px solid beige;
+}
+
+h3 {
+    color: beige;
+    font-size: 28px;
+}
+
+p {
+    color: rgb(167, 163, 163);
+   font-size: 24px;
+}
+ul {
+    gap: 10px;
+    display: flex;
+    flex-direction: column;
+}
+
+li {
+    color: beige;
+    font-size: 20px;
+}
+
+.removeBtn {
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    background-color: beige;
+}
+
+.buy {
+    padding: 20px 40px;
+    background-color: beige;
+    border-radius: 16px;
+     cursor: pointer;
+    border: 2px solid gray;
+    font-size: 16px;
+}
+
+.buy:hover {
+    background-color: rgb(29,24,25);
+    color: beige;
+    border: 2px solid beige;
+    transition: 0.5s;
+}
+
+
+
+@media screen and (max-width:900px) {
+    div {
+       width: 400px;
+        flex-direction: column;
+        
+    }
+    .removeBtn {
+        padding: 20px;
+        font-size: 20px;
+    }
+    h3 {
+        font-size: 32px;
+    }
+    p {
+        font-size: 32px;
+    }
+    li {
+        font-size: 32px;
+    }
+  
+}
+
+@media screen and (max-width: 400px) {
+    div {
+        width: 200px;
+    }
+
+    h3 {
+        font-size: 24px;
+    }
+    p {
+        font-size: 24px;
+    }
+    li {
+        font-size: 24px;
+    }
+}

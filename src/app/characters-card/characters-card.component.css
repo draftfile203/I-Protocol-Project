@@ -6,8 +6,9 @@
     border-radius: 8px;
     padding-top: 16px;
     border: 2px solid beige;
-    padding-bottom: 4px;
+    padding: 12px 40px;
     max-width: 400px;
+    gap: 8px;
 }
 
 .card img {

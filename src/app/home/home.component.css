@@ -32,7 +32,8 @@ section{
     display: flex;
     flex-direction: column;
     align-items: center;
-    height: 80vh;
+    padding: 24px;
+    min-height: 80vh;
 }
 
 h1 {
@@ -48,7 +49,8 @@ h1 {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 50px;
-    margin-top: 40px;
+    padding: 40px;
+    max-width: 1360px;
     /* background-color: rgb(29,24,25) ;
     padding: 50px;
     border: 2px solid beige;
@@ -56,11 +58,12 @@ h1 {
 }
 
 .photos img {
-    width: 400px;
-    height: 20vh;
+    width: 100%;
     border: 2px solid  rgb(129, 129, 114);
     border-radius: 8px;
-    
+    object-fit: cover;
+    height: 24vh;
+    object-position: center;
 }
 
 .photos img:hover {
@@ -68,24 +71,39 @@ h1 {
     transition: 0.5s;
 }
 
-@media (max-width: 1200px) {
-    section {
-        height: 88vh;
-    }
+@media screen and (max-width: 1200px) {
+    
     
     .photos {
         grid-template-columns: 1fr 1fr;
+        gap: 32px;
     }
 
 }
 
 @media (max-width: 600px) {
-     section {
-        height: 164vh;
-     }
-
+     
     .photos {
         grid-template-columns: 1fr
     }
 
+} 
+/* @media screen and (min-height: 964px) {
+    section {
+        min-height: 84vh;
+    }    
 }
+
+
+@media screen and (min-height: 1100px) {
+    section {
+        min-height: 86vh;
+    }    
+}
+
+
+@media screen and (min-height: 1280px) {
+    section {
+        min-height: 88vh;
+    }    
+} */
