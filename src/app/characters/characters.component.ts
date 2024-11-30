@@ -1,7 +1,7 @@
-import { Component,inject } from '@angular/core';
+import { Component,inject, PLATFORM_ID } from '@angular/core';
 import { GetDataService } from '../services/get-data.service';
 import { Characters } from '../services/characters';
-import { CommonModule, NgFor, NgIf } from '@angular/common';
+import { CommonModule, isPlatformBrowser, NgFor, NgIf } from '@angular/common';
 import { CharactersCardComponent } from '../characters-card/characters-card.component';
 import { HeaderComponent } from '../header/header.component';
 import { FormsModule } from '@angular/forms';
@@ -20,6 +20,8 @@ export class CharactersComponent {
 
   dataService: GetDataService = inject(GetDataService)
 
+  platformId = inject(PLATFORM_ID)
+
   charactersList: Characters[] = []
 
   filteredCharacterList: Characters [] = []
@@ -30,8 +32,10 @@ export class CharactersComponent {
 
   displayedCharactersCount = 6
 
-  constructor() {
+  constructor(private dataservice: GetDataService) {
+    if (isPlatformBrowser(this.platformId)){
     this.loadCharacters()
+    }
   }
 
   async loadCharacters(refresh:boolean = false) {

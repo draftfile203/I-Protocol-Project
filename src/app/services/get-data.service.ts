@@ -55,6 +55,11 @@ export class GetDataService {
   }
 
   async getData(refresh: boolean = false): Promise<Characters[]> {
+     
+    if(!isPlatformBrowser(this.platformId)){
+      return []
+    }
+     
      const cachedData = localStorage.getItem(this.localStorageKey)
      const cachedTime = localStorage.getItem(`${this.localStorageKey}_time`)
 
@@ -68,15 +73,18 @@ export class GetDataService {
     const response = await fetch(this.url)
     const data = await response.json()
     
-
+   if (isPlatformBrowser(this.platformId)) {
     localStorage.setItem(this.localStorageKey, JSON.stringify(data));
     localStorage.setItem(`${this.localStorageKey}_time`,String(Date.now()))
-  
+   }
+
     return data;
   }
 
 clearCache(): void {
+  if(isPlatformBrowser(this.platformId)) {
   this.localStorage.clear()
+  }
 }
 
 
