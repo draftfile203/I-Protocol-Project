@@ -192,9 +192,7 @@ nav a {
 }
 
 @media screen and (max-width: 620px) {
-    .register {
-       max-height: 4vh;
-    }
+  
     nav a {
         font-size: 18px;
     }

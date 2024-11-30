@@ -58,7 +58,7 @@ section {
     position: relative;
     align-items: center;
     justify-content: center;
-    
+    color: black;
     cursor: pointer;
     background-color: rgb(143, 143, 108);
     padding: 8px;
