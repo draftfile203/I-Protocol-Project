@@ -1,11 +1,11 @@
 .card {
-    background-color: rgb(29,24,25);
+    background-color: var(--header-background);
     align-items: center;
     display: flex;
     flex-direction: column;
     border-radius: 8px;
     padding-top: 16px;
-    border: 2px solid beige;
+    border: 2px solid var(--text-color);
     padding: 12px 40px;
     max-width: 400px;
     gap: 8px;
@@ -17,9 +17,9 @@
 }
 
 h1 {
-    color: beige;
+    color: var(--text-color);
 }
 
 p{
-    color: rgb(180, 162, 162);
+    color: var(--p-color);
 }

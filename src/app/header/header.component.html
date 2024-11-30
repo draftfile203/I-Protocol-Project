@@ -11,16 +11,19 @@
   
     <!-- Navigation -->
     <nav [class.active]="menuOpen">
-      <a routerLink="" class="nav" (click)="closeMenu()">HOME</a>
-      <a routerLink="/about" class="nav" (click)="closeMenu()">BOUT</a>
-      <a routerLink="/characters" class="nav" (click)="closeMenu()">CTERS</a>
-      <a routerLink="packs" class="nav" (click)="closeMenu()">ACKS</a>
-      <a class="register" routerLink="/register" (click)="closeMenu()">STER</a>
-      <a class="login" routerLink="/login" (click)="closeMenu()">OGIN</a>
+      <a routerLink="" class="nav" (click)="closeMenu()">Home</a>
+      <a routerLink="/about" class="nav" (click)="closeMenu()">About</a>
+      <a routerLink="/characters" class="nav" (click)="closeMenu()">Characters</a>
+      <a routerLink="packs" class="nav" (click)="closeMenu()">Packs</a>
+      <a class="register" routerLink="/register" (click)="closeMenu()">Register</a>
+      <a class="login" routerLink="/login" (click)="closeMenu()">Log in</a>
       <a routerLink="cart" class="cart" (click)="closeMenu()">
         <img src="https://img.icons8.com/sf-black-filled/50/shopping-cart.png" alt="cart">
         <span *ngIf="cartItemCount > 0" class="cart-count">{{ cartItemCount }}</span>
       </a>
+
+      <app-theme-toggle></app-theme-toggle>
+
   
       <!-- Language Switcher -->
      

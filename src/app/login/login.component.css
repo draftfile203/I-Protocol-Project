@@ -11,7 +11,7 @@ form {
     width: 600px;
     height: 42vh;
     flex-direction: column;
-    background-color:rgb(29,24,25);
+    background-color:var(--header-background);
     padding: 20px;
     align-items: center;
     gap: 16px;
@@ -19,7 +19,7 @@ form {
 } 
 
 h1{ 
-    color: beige;
+    color: var(--text-color);
     font-size: 44px;
     margin-top: 8px;
 }
@@ -28,7 +28,7 @@ h1{
 input {
     width: 280px;
     height: 5vh;
-    background-color: beige;
+    background-color: var(--button-color);
     border-radius: 4px;
     font-size: 16px;
     border: 2px solid rgb(153, 153, 134);
@@ -39,7 +39,7 @@ button {
     /* width: 240px;
     height: 5vh; */
     padding: 12px 40px;
-    background-color: beige;
+    background-color: var(--button-color);
     margin-top: 12px;
     border-radius: 12px;
     font-size: 20px;

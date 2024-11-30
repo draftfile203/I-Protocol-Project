@@ -20,7 +20,7 @@ section {
      display: flex;
      flex-direction: column;
      padding: 60px 40px;
-     background-color: rgb(29,24,25);
+     background-color: var(--header-background);
      width: 400px;
     min-height: 40vh;
     gap: 40px;
@@ -28,7 +28,7 @@ section {
 }
 
 h1 {
-    color: beige;
+    color: var(--text-color);
     font-size: 32px;
 }
 
@@ -38,15 +38,16 @@ p {
 }
 
 li {
-    color: beige;
+    color: var(--text-color);
     font-size: 20px;
 }
 
 button {
     padding: 20px;
-    background-color: beige;
+    background-color: var(--text-color);
     border-radius: 8px;
     font-size: 16px;
+    color: var(--header-background);
 }
 
 button:hover {
@@ -57,26 +58,7 @@ button:hover {
     cursor: pointer;
 }
 
-/* 
-@media screen and (min-height: 964px) {
-    section {
-        min-height: 84vh;
-    }    
-}
 
-
-@media screen and (min-height: 1100px) {
-    section {
-        min-height: 86vh;
-    }    
-}
-
-
-@media screen and (min-height: 1280px) {
-    section {
-        min-height: 88vh;
-    }    
-} */
 
 @media screen and (max-width: 1300px) {
     .packs {

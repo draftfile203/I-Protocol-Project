@@ -37,10 +37,10 @@ section{
 }
 
 h1 {
-    color: beige;
+    color: var(--text-color);
     margin-top: 40px;
     font-size: 40px;
-    background-color: rgb(29,24,25);
+    background-color: var(--header-background);
     padding: 8px;
     border-radius: 8px;
 }

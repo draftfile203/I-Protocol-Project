@@ -14,7 +14,7 @@ section {
     /* padding: 30px 10px; */
 }
 h1 {
-    color: beige;
+    color: var(--text-color);
     font-size: 40px !important;
  }
 
@@ -24,7 +24,7 @@ h1 {
     margin: auto;
     color: black;
     border-radius: 20px;
-    background-color: rgb(29,24,25);
+    background-color: var(--header-background);
     padding: 80px;
     display: flex;
     flex-direction: column;
@@ -43,7 +43,7 @@ h1 {
 
 p {
     margin: 0px;
-    color: beige; 
+    color: var(--text-color); 
     font-size: 28px ;
 }
 
@@ -75,8 +75,9 @@ p {
 
 .btn.btn.btn-primary:hover {
     background-position: right center;
-    background-color: beige;
+    background-color: var(--text-color);
     text-decoration: none;
+    color: var(--background-color);
 }
 
 
@@ -88,7 +89,7 @@ p {
 
 .form-control {
     color: beige;
-    background-color: beige;
+    background-color: var(--button-color);
     border: 2px solid transparent;
     height: 60px;
     padding-left: 20px;

@@ -2,6 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { RouterModule} from '@angular/router';
 import { CartService } from '../services/cart.service';
 import { NgIf } from '@angular/common';
+import { ThemeToggleComponent } from '../theme-toggle/theme-toggle.component';
  
 
 
@@ -11,7 +12,7 @@ import { NgIf } from '@angular/common';
 @Component({
   selector: 'app-header',
   standalone: true,
-  imports: [NgIf,  RouterModule],
+  imports: [NgIf,  RouterModule,ThemeToggleComponent],
   templateUrl: './header.component.html',
   styleUrl: './header.component.css'
 })

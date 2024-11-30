@@ -53,8 +53,8 @@ section {
 h1 {
     font-size: 40px;
     margin-top: 40px;
-    color: beige;
-    background-color: rgb(29,24,25);
+    color: var(--text-color);
+    background-color: var(--header-background);
     padding: 8px;
     border-radius: 8px;
 }
@@ -69,7 +69,7 @@ h1 {
 .downloadCard {
     display: flex;
     flex-direction: column;
-    background-color: rgb(29,24,25);
+    background-color: var(--header-background);
     align-items: center;
     justify-content: center;
     padding: 40px;
@@ -80,7 +80,8 @@ h1 {
 button {
     margin-top: 28px;
     padding: 8px;
-    background-color: beige;
+    background-color: var(--text-color);
+   color: var(--header-background);
     border-radius: 16px;
     border: 2px solid black;
 }

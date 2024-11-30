@@ -7,8 +7,8 @@ section {
 }
 
 h2 {
-    color: beige;
-    background-color: rgb(29,24,25);
+    color: var(--text-color);
+    background-color: var(--header-background);
     padding: 8px;
     font-size: 32px;
     margin-top: 20px;
@@ -18,7 +18,7 @@ h2 {
 
 div {
     display: flex;
-    background-color: rgb(29,24,25);
+    background-color: var(--header-background);
     gap: 100px;
     align-items: center;
     padding: 40px;
@@ -27,7 +27,7 @@ div {
 }
 
 h3 {
-    color: beige;
+    color: var(--text-color);
     font-size: 28px;
 }
 
@@ -42,15 +42,16 @@ ul {
 }
 
 li {
-    color: beige;
+    color: var(--text-color);
     font-size: 20px;
 }
 
 .removeBtn {
     cursor: pointer;
     padding: 8px;
+    color: var(--header-background);
     border-radius: 8px;
-    background-color: beige;
+    background-color: var(--text-color);
 }
 
 .buy {

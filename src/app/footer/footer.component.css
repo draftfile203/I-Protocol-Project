@@ -33,7 +33,7 @@ a:hover {
 footer {
     display: flex;
     justify-content: space-between;
-    background-color: rgb(29,24,25);
+    background-color: var(--header-background);
     padding: 13px 40px;
     align-items: center;
     min-height: 10vh;
@@ -71,7 +71,7 @@ p{
 }
 
 .contact a:hover {
-    color: beige;
+    color: var(--text-color);
     text-decoration: underline;
     transition: 0.5s;
 }

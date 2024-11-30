@@ -37,7 +37,7 @@ header {
     justify-content: space-between;
     padding: 16px 40px;
     align-items: center;
-    background-color: rgb(29,24,25);
+    /* background-color: rgb(29,24,25); */
     min-height: 10vh;
 }
 
@@ -75,13 +75,13 @@ nav {
 nav a {
     cursor: pointer;
     text-decoration: none;
-    color: rgb(146, 145, 145);
+    color: var(--text-color);
     font-size: 20px;
     position: relative;
 }
 
 .nav:hover {
-    color: beige;
+    color: var(--text-color);
     transition: 0.5s;
 }
 
@@ -93,7 +93,7 @@ nav a {
     bottom: 0 ; /* Adjust the position as needed */
     width: 0 ;
     height: 2px ; /* Thickness of the underline */
-    background-color: beige ; /* Color of the underline */
+    background-color: var(--text-color) ; /* Color of the underline */
     transition: width 0.5s ease, left 0.5s ease;
 }
 
@@ -119,9 +119,9 @@ nav a {
     padding: 8px;
     position: relative;
      bottom: 8px;
-    background-color: beige;
+    background-color: var(--text-color);
     border-radius: 8px;
-    color: black !important;
+    color: var(--background-color) !important;
     border: 2px solid beige;
     
 }
