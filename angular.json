@@ -23,13 +23,7 @@
             "assets": [
               {
                 "glob": "**/*",
-                "input": "public",
-                "output": "/public"
-              },
-              {
-                "glob": "**/*",
-                "input": "src/assets",
-                "output": "/assets"
+                "input": "public"
               }
               
             ],
@@ -93,12 +87,7 @@
             "assets": [
               {
                 "glob": "**/*",
-                "input": "public",  "output": "/public"
-              },
-              {
-                "glob": "**/*",
-                "input": "src/assets",
-                "output": "/assets"
+                "input": "public"
               }
               
             ],
