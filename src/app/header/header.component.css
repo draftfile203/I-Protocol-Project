@@ -56,6 +56,7 @@ img {
     flex-direction: column;
     gap: 5px;
     color: beige;
+    
   }
   
   .burger-menu span {
@@ -206,7 +207,7 @@ nav a {
       left: 0;
       width: 100%;
       height: 100%;
-      background-color: black;
+      background-color: var(--header-background);
       flex-direction: column;
       align-items: center;
       justify-content: center;
@@ -219,7 +220,7 @@ nav a {
       }
     
       nav a {
-        color: white;
+        color: var(--text-color);
         font-size: 1.5em;
         margin: 0.5em 0;
       }
