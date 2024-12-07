@@ -2,7 +2,7 @@ import { NgFor, NgIf } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { Pack } from '../services/pack';
 import { CartService } from '../services/cart.service';
-
+import Swal from 'sweetalert2';
 import { RouterLink } from '@angular/router';
 
 @Component({
@@ -27,6 +27,14 @@ export class CartComponent implements OnInit{
      removeFromCart(index: number) {
       this.cartService.removeCartItem(index)
       this.cartItems = this.cartService.getCartItems()
+      Swal.fire({
+        title: "Pack removed!",
+        icon: "error",
+        background: "rgb(29,24,25)",
+          color: "beige",
+          confirmButtonColor: "black",
+          iconColor: "beige"
+      });
      
 
      }  

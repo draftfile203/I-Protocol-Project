@@ -2,6 +2,7 @@ import { Component } from '@angular/core';
 import { Pack } from '../services/pack';
 import { CartService } from '../services/cart.service';
 import { NgFor } from '@angular/common';
+import Swal from 'sweetalert2';
 
 
 @Component({
@@ -23,10 +24,20 @@ export class PacksComponent {
       addToCart(pack : Pack) {
       
         this.cartService.addPackToCart(pack)
+        Swal.fire({
+          title: "Pack added!",
+          icon: "success",
+          background: "rgb(29,24,25)",
+          color: "beige",
+          confirmButtonColor: "black",
+          iconColor: "beige"
+        });
       }
       
       isInCart(pack: Pack): boolean {
+       
         return this.cartService.getCartItems().some((item) => item.name === pack.name);
+      
       }
      }   
 
