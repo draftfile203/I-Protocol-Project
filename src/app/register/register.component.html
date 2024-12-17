@@ -1,18 +1,18 @@
 <section>
     <form [formGroup]="registerForm" (ngSubmit)="onSubmit()" class="registerCard">
        
-        <h1>Email:</h1>
+        <h1>{{'INPUT.EMAIL' | translate}}</h1>
            <input type="email" formControlName="email" placeholder="Enter email" >
             <div *ngIf="registerForm.controls['email'].invalid && registerForm.controls['email'].touched" class="incorrectEmail">
-                <small style="color: gray">Please enter a valid email</small>
+                <small style="color: gray">{{'INPUT.VALEMAIL' | translate}}</small>
             </div>
 
-           <h1>Password:</h1>
+           <h1>{{'INPUT.PASSWORD' | translate}}</h1>
            <input type="password" formControlName="password" placeholder="Enter password">
            <div *ngIf="registerForm.controls['password'].invalid && registerForm.controls['password'].touched">
-            <small style="color: gray">Password must be at least 6 characters.</small>
+            <small style="color: gray">{{'INPUT.VALPASS' | translate}}</small>
           </div>
       
-           <button type="submit" [disabled]="registerForm.invalid">Register</button>
+           <button type="submit" [disabled]="registerForm.invalid">{{'INPUT.REGISTER' | translate}}</button>
     </form>
 </section>

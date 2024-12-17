@@ -3,11 +3,12 @@ import { CartService } from '../services/cart.service';
 import Swal from 'sweetalert2';
 import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { TranslatePipe } from '@ngx-translate/core';
 
 @Component({
   selector: 'app-payment',
   standalone: true,
-  imports: [NgClass,FormsModule],
+  imports: [NgClass,FormsModule,TranslatePipe],
   templateUrl: './payment.component.html',
   styleUrl: './payment.component.css'
 })

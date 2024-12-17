@@ -72,7 +72,9 @@ h1 {
 }
 
 @media screen and (max-width: 1200px) {
-    
+    section {
+        min-height: 100vh;
+    }
     
     .photos {
         grid-template-columns: 1fr 1fr;
@@ -82,7 +84,9 @@ h1 {
 }
 
 @media (max-width: 600px) {
-     
+     section {
+        min-height: 180vh;
+     }
     .photos {
         grid-template-columns: 1fr
     }

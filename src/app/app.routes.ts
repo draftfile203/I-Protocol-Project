@@ -8,6 +8,8 @@ import { LoginComponent } from './login/login.component';
 import { PacksComponent } from './packs/packs.component';
 import { CartComponent } from './cart/cart.component';
 import { PaymentComponent } from './payment/payment.component';
+import { NotFoundComponent } from './not-found/not-found.component';
+
 
 
 export const routes: Routes = [
@@ -20,5 +22,6 @@ export const routes: Routes = [
     {path: "packs", component:PacksComponent},
     {path: "cart", component:CartComponent},
     {path: "payment", component:PaymentComponent},
-    {path: 'admin', loadChildren: () => import('./admin/adminServices/admin.module').then(m => m.AdminModule)}
+    {path: 'admin', loadChildren: () => import('./admin/adminServices/admin.module').then(m => m.AdminModule)},
+    {path: '**', component: NotFoundComponent}
 ];
