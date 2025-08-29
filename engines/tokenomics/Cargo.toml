@@ -1,0 +1,58 @@
+[package]
+name = "iprotocol-tokenomics"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Engine T: Tokenomics (Deterministic Emission, Fees, and Validator Rewards) for I Protocol V5"
+readme = "../../README.md"
+keywords = ["blockchain", "tokenomics", "emission", "fees", "rewards"]
+categories = ["algorithms", "finance"]
+
+[dependencies]
+# Shared cryptographic foundations
+iprotocol-crypto = { path = "../../crypto" }
+
+# Cryptography
+sha3 = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+bincode = { workspace = true }
+
+# Big integers for precise calculations
+primitive-types = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+num-integer = { workspace = true }
+
+# Collections
+indexmap = { workspace = true }
+
+# Utilities
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+once_cell = { workspace = true }
+lazy_static = { workspace = true }
+
+# Logging
+log = { workspace = true }
+
+# Engine dependencies (for integration)
+iprotocol-vdf = { path = "../vdf" }
+iprotocol-lameqx = { path = "../lameqx" }
+iprotocol-pada = { path = "../pada" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+env_logger = { workspace = true }
+
+[features]
+default = ["std"]
+std = []
+emission = []    # Enable emission calculations
+rewards = []     # Enable reward distribution
+fees = []        # Enable fee processing
+all = ["emission", "rewards", "fees"]

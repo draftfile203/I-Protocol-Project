@@ -1,0 +1,590 @@
+Below is the **perfected blueprint** for **Engine 2 — Verifiable Delay Function (VDF)**. It is written to be **byte-precise**, **production-grade**, and **coherent** with the other engines:
+
+* **Engine 1 (LAMEq-X)** derives its per-slot, per-key seed from **`parent.vdf_y_edge`** (i.e., the VDF beacon of slot *s−1*).
+* **Engine 3 (MARS)** validates headers strictly by **equalities**, including the VDF equalities and size caps defined here.
+* **Engine 4 (PADA)** binds transactions to **`y_{s-1} = parent.vdf_y_edge`** via `y_bind`.
+
+Every hash/tag, byte layout, and field order below is **normative**. Independent implementations must agree **bit-for-bit**.
+
+---
+
+# Engine 2 — Verifiable Delay Function (VDF)
+
+**Production blueprint (byte-precise, Rust-ready pseudocode).**
+**Pipeline alignment:** Evaluation begins at the **start of slot *s*** and must complete within the **0–100 ms** finality window. Verification is succinct and comfortably runs within the same window.
+
+---
+
+## 1. Scope & Purpose (VDF only)
+
+Provide a **public, unbiasable, deterministic delay** per slot, with:
+
+* **Unbiasability**: seed for slot *s* is uniquely fixed by `(parent_header_id, s)`; no grinding.
+* **Uniqueness**: exactly one valid output exists for `(seed, T)`; the backend returns a **canonical byte string** `Y_raw`.
+* **Canonicalization**: `y_core = H("vdf.ycore.canon", [Y_raw])` and `y_edge = H("vdf.edge", [y_core])` force **bit-identical** 32-byte commitments across implementations.
+* **Consensus interface**: headers commit the beacon fields; header validity reduces to fixed **equalities** plus size caps.
+
+This module does **not** admit transactions or execute state. It only **produces** and **verifies** the beacon.
+
+---
+
+## 2. Consensus Constants (VDF-only)
+
+These constants belong to the consensus versioning domain and may change **only** via a **version bump**.
+
+```text
+SLOT_MS            = 100                      // slot cadence
+EVAL_BUDGET_MS     = 80                       // producer evaluation budget inside 0–100 ms
+VDF_DELAY_T        = 75                       // backend-specific delay tuned to meet budget
+VDF_VERSION        = 1                        // VDF module version
+
+MAX_PI_LEN         = 64,000 bytes             // DoS bound: opaque proof bytes
+MAX_ELL_LEN        = 8,192 bytes              // DoS bound: opaque aux bytes
+```
+
+* `VDF_DELAY_T` is the **only** parameter tuned to reference hardware; any change (or backend encoding change) requires a consensus **version bump**.
+
+---
+
+## 3. Encodings & Hashing (normative)
+
+* All integers are **little-endian fixed-width**.
+  `LE(x, W)` → exactly `W` bytes (no overlong encodings).
+* `Hash256 = [u8; 32]`.
+
+**Domain-tagged SHA3-256 with length framing:**
+
+```
+H(tag_ascii, parts[]) =
+    SHA3_256( UTF8(tag_ascii)
+              || Σ ( LE(|p|,8) || p ) )
+```
+
+**Canonical beacon bytes:**
+
+```
+seed_s = H("slot.seed",       [ parent_header_id, LE(slot,8) ])   // 32 bytes
+y_core = H("vdf.ycore.canon", [ Y_raw ])                          // 32 bytes
+y_edge = H("vdf.edge",        [ y_core ])                         // 32 bytes
+```
+
+> **Notes**
+>
+> * `parent_header_id` is the canonical `header_id(parent)` defined by MARS.
+> * `Y_raw` is the backend-defined **unique canonical** byte encoding of the VDF output element for `(seed_s, VDF_DELAY_T)`.
+
+No Merkle structures are used by VDF itself; the hashing discipline (domain separation + length framing) is network-wide.
+
+---
+
+## 4. Beacon Object & Header Commitments
+
+Each slot *s* header carries a **Beacon** commitment (fields are in **fixed order**):
+
+```
+Beacon {
+    seed_commit : Hash256   // must equal seed_s
+    vdf_y_core  : Hash256   // must equal H("vdf.ycore.canon", Y_raw)
+    vdf_y_edge  : Hash256   // must equal H("vdf.edge", vdf_y_core)
+    vdf_pi      : Bytes     // opaque proof bytes, len-prefixed in the header
+    vdf_ell     : Bytes     // opaque aux bytes, len-prefixed in the header
+}
+```
+
+**Beacon validity equalities (all required):**
+
+1. `seed_commit == H("slot.seed", [parent_id, LE(slot,8)])`
+2. `Backend.verify(seed_commit, VDF_DELAY_T, vdf_pi, vdf_ell) → (ok=true, Y_raw’)`
+3. `vdf_y_core == H("vdf.ycore.canon", [Y_raw’])`
+4. `vdf_y_edge == H("vdf.edge", [vdf_y_core])`
+5. `|vdf_pi| ≤ MAX_PI_LEN` and `|vdf_ell| ≤ MAX_ELL_LEN` (cap **prior** to expensive work)
+
+Any failure ⇒ **header invalid**.
+
+---
+
+## 5. Pipeline Timing (0–100 ms, succinct verification)
+
+* **Producers** (start of slot *s*, `t ∈ [0, EVAL_BUDGET_MS]`): compute `(Y_raw, π, ℓ) = eval(seed_s, VDF_DELAY_T)`, form `y_core` and `y_edge`, emit Beacon.
+* **Validators** (same window): check equalities; runtime is succinct and does **not** depend on *T* beyond backend verification cost (which is negligible vs evaluation).
+
+No wall-clock assumptions inside verification—only equalities over canonical bytes.
+
+---
+
+## 6. Rust-Ready Implementation (pseudocode)
+
+> Replace cryptographic stubs (`sha3_256`, backend internals) with **real** libraries. All byte orders, tags, and field ordering below are **normative**.
+
+```rust
+// ============================= vdf.rs ==============================
+// Engine 2: Verifiable Delay Function — Beacon build & verify
+// Byte-precise, consensus-ready, 0–100 ms evaluation window.
+// ===================================================================
+
+#![allow(unused)]
+use alloc::vec::Vec;
+
+// ——— Types & integer encodings ————————————————————————————————
+
+pub type Hash256 = [u8; 32];
+
+#[inline]
+pub fn le_bytes<const W: usize>(mut x: u128) -> [u8; W] {
+    let mut out = [0u8; W];
+    for i in 0..W { out[i] = (x & 0xFF) as u8; x >>= 8; }
+    out
+}
+
+// ——— Hashing (domain-tagged, length-framed) ————————————————————
+
+pub fn sha3_256(_input: &[u8]) -> Hash256 {
+    // Replace with a real SHA3-256 implementation
+    unimplemented!()
+}
+
+#[inline]
+pub fn h_tag(tag: &str, parts: &[&[u8]]) -> Hash256 {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(tag.as_bytes());
+    for p in parts {
+        let len = le_bytes::<8>(p.len() as u128);
+        buf.extend_from_slice(&len);
+        buf.extend_from_slice(p);
+    }
+    sha3_256(&buf)
+}
+
+// ——— Consensus constants (VDF) ————————————————————————————————
+
+pub const VDF_VERSION: u32    = 1;
+pub const SLOT_MS: u64        = 100;
+pub const EVAL_BUDGET_MS: u64 = 80;
+pub const VDF_DELAY_T: u64    = 75;
+
+pub const MAX_PI_LEN: usize   = 64_000;  // proof bytes cap
+pub const MAX_ELL_LEN: usize  = 8_192;   // aux bytes cap
+
+// ——— Domain tags (ASCII exact) ————————————————————————————————
+
+const TAG_SLOT_SEED:   &str = "slot.seed";
+const TAG_YCORE_CANON: &str = "vdf.ycore.canon";
+const TAG_EDGE:        &str = "vdf.edge";
+
+// ——— Canonical helpers ————————————————————————————————————————
+
+#[inline]
+pub fn slot_seed(parent_header_id: &Hash256, slot: u64) -> Hash256 {
+    let slot_le = le_bytes::<8>(slot as u128);
+    h_tag(TAG_SLOT_SEED, &[parent_header_id, &slot_le])
+}
+
+#[inline]
+pub fn ycore_from_raw(y_raw: &[u8]) -> Hash256 {
+    h_tag(TAG_YCORE_CANON, &[y_raw])
+}
+
+#[inline]
+pub fn yedge_from_ycore(y_core: &Hash256) -> Hash256 {
+    h_tag(TAG_EDGE, &[y_core])
+}
+
+// ——— VDF Backend trait (backend-agnostic interface) ————————————
+
+/// A conforming backend MUST:
+///  - deterministically map (seed32, delay_t) to a unique canonical byte string Y_raw,
+///  - produce an opaque proof π (vdf_pi) and aux data ℓ (vdf_ell) with bounded sizes,
+///  - verify(seed, T, π, ℓ) either returns (true, Y_raw) with identical canonical bytes,
+///    or (false, []).
+///
+/// Canonicality requirement:
+///  For any (seed, T), there is exactly ONE valid canonical Y_raw accepted by verify().
+pub trait VdfBackend {
+    fn eval(seed32: &Hash256, delay_t: u64) -> (Vec<u8>, Vec<u8>, Vec<u8>); // (Y_raw, pi, ell)
+    fn verify(seed32: &Hash256, delay_t: u64, pi: &[u8], ell: &[u8]) -> (bool, Vec<u8>);
+}
+
+// ——— Beacon object (as committed in headers) ————————————————
+
+#[derive(Clone)]
+pub struct Beacon {
+    pub seed_commit: Hash256,   // 32
+    pub vdf_y_core:  Hash256,   // 32
+    pub vdf_y_edge:  Hash256,   // 32
+    pub vdf_pi:      Vec<u8>,   // len-prefixed in header
+    pub vdf_ell:     Vec<u8>,   // len-prefixed in header
+}
+
+// ——— Producer path (build Beacon at start of slot s) ————————————
+
+pub enum BuildErr {
+    ProofTooLarge,
+}
+
+pub fn build_beacon<B: VdfBackend>(
+    parent_header_id: &Hash256,
+    slot: u64,
+) -> Result<Beacon, BuildErr> {
+    let seed = slot_seed(parent_header_id, slot);
+
+    // Backend evaluation (time-dominant; target ~80 ms)
+    let (y_raw, pi, ell) = B::eval(&seed, VDF_DELAY_T);
+
+    // Size caps BEFORE finalizing beacon (DoS hardening)
+    if pi.len()  > MAX_PI_LEN  { return Err(BuildErr::ProofTooLarge); }
+    if ell.len() > MAX_ELL_LEN { return Err(BuildErr::ProofTooLarge); }
+
+    // Canonical digests
+    let y_core = ycore_from_raw(&y_raw);
+    let y_edge = yedge_from_ycore(&y_core);
+
+    Ok(Beacon {
+        seed_commit: seed,
+        vdf_y_core:  y_core,
+        vdf_y_edge:  y_edge,
+        vdf_pi:      pi,
+        vdf_ell:     ell,
+    })
+}
+
+// ——— Verifier path (succinct; equality-only) ————————————————
+
+pub enum VerifyErr {
+    SeedMismatch,
+    ProofTooLarge,
+    BackendInvalid,
+    CoreMismatch,
+    EdgeMismatch,
+}
+
+pub fn verify_beacon<B: VdfBackend>(
+    parent_header_id: &Hash256,
+    slot: u64,
+    b: &Beacon,
+) -> Result<(), VerifyErr> {
+    // 1) Seed equality
+    let seed_expected = slot_seed(parent_header_id, slot);
+    if b.seed_commit != seed_expected { return Err(VerifyErr::SeedMismatch); }
+
+    // 2) Size caps (enforce prior to backend work)
+    if b.vdf_pi.len()  > MAX_PI_LEN  { return Err(VerifyErr::ProofTooLarge); }
+    if b.vdf_ell.len() > MAX_ELL_LEN { return Err(VerifyErr::ProofTooLarge); }
+
+    // 3) Backend verify (returns canonical Y_raw if ok)
+    let (ok, y_raw) = B::verify(&b.seed_commit, VDF_DELAY_T, &b.vdf_pi, &b.vdf_ell);
+    if !ok { return Err(VerifyErr::BackendInvalid); }
+
+    // 4) y_core equality
+    let y_core_expected = ycore_from_raw(&y_raw);
+    if b.vdf_y_core != y_core_expected { return Err(VerifyErr::CoreMismatch); }
+
+    // 5) y_edge equality
+    let y_edge_expected = yedge_from_ycore(&b.vdf_y_core);
+    if b.vdf_y_edge != y_edge_expected { return Err(VerifyErr::EdgeMismatch); }
+
+    Ok(())
+}
+```
+
+---
+
+## 7. Backend Skeletons (RSA/Wesolowski and Class-Group)
+
+> These are **skeletons**. They specify canonicalization and mapping rules that a concrete backend must implement.
+
+### 7.1 RSA VDF (Wesolowski-style) — `vdf_backend_weso.rs`
+
+* **Group**: `ℤ_N^*` for a fixed RSA modulus `N` (generated in a trusted setup, or verifiable delay RSA).
+* **Seed mapping**: `g = HashToBase(seed32) ∈ ℤ_N^*`, with rejection sampling to avoid torsion/bad elements.
+* **Delay**: compute `y = g^(2^T) mod N` (sequential squarings).
+* **Proof**: Wesolowski proof `π` for exponent `2^T`.
+* **Canonical `Y_raw`**: the *modulus-sized, big-endian, fixed-width* byte string of `y` (exactly `|N|` bytes).
+
+```rust
+// =================== vdf_backend_weso.rs (skeleton) =================
+use crate::vdf::{Hash256, VdfBackend};
+
+pub struct WesoBackend;
+
+// Map seed to base g ∈ Z*_N deterministically, with domain sep and rejection sampling.
+fn hash_to_base(seed32: &Hash256) -> /* Z_N element */ { unimplemented!() }
+
+// Deterministic, canonical big-endian encoding of a residue modulo N, width = |N| bytes.
+fn canon_be_bytes_fixed_width(/* residue */) -> Vec<u8> { unimplemented!() }
+
+// Wesolowski proof generation and verification
+fn weso_prove(/* g, T, N */) -> (/* y */, Vec<u8> /* pi */) { unimplemented!() }
+fn weso_verify(/* seed, T, pi, N */) -> Option</* y */> { unimplemented!() }
+
+impl VdfBackend for WesoBackend {
+    fn eval(seed32: &Hash256, delay_t: u64) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let g = hash_to_base(seed32);
+        let (y, pi) = weso_prove(/* g, delay_t, N */);
+        let y_raw = canon_be_bytes_fixed_width(/* y */);
+        (y_raw, pi, Vec::new() /* ell empty */)
+    }
+
+    fn verify(seed32: &Hash256, delay_t: u64, pi: &[u8], ell: &[u8]) -> (bool, Vec<u8>) {
+        if !ell.is_empty() { return (false, Vec::new()); } // RSA backend expects empty ell
+        let maybe_y = weso_verify(/* seed32, delay_t, pi, N */);
+        match maybe_y {
+            Some(y) => (true, canon_be_bytes_fixed_width(/* y */)),
+            None    => (false, Vec::new()),
+        }
+    }
+}
+```
+
+**Canonicality guarantees**:
+
+* `canon_be_bytes_fixed_width(y)` **must** always return the same length (`|N|` bytes) with leading zeros added when needed.
+* For a given `(seed, T)`, there is exactly **one** valid `y` and thus one `Y_raw`.
+
+---
+
+### 7.2 Class-Group VDF — `vdf_backend_cg.rs`
+
+* **Group**: class group of an imaginary quadratic order with discriminant `D` (no trusted setup).
+* **Seed mapping**: `g = HashToClassGroup(seed32; D)` with a fixed discriminant and canonical representative.
+* **Delay**: `y = g^(2^T)` via sequential squarings/composition.
+* **Proof**: succinct proof (e.g., Wesolowski-style for class groups).
+* **Canonical `Y_raw`**: group element encoded as a **unique compressed** byte string per standard (fixed rules: sign bits, coefficient order, width).
+
+```rust
+// =================== vdf_backend_cg.rs (skeleton) ===================
+use crate::vdf::{Hash256, VdfBackend};
+
+pub struct ClassGroupBackend;
+
+fn hash_to_class_group(seed32: &Hash256) -> /* class group elem */ { unimplemented!() }
+fn canon_compressed_bytes(/* elem */) -> Vec<u8> { unimplemented!() }
+
+fn cg_prove(/* g, T, D */) -> (/* y */, Vec<u8> /* pi */, Vec<u8> /* ell */) { unimplemented!() }
+fn cg_verify(/* seed, T, pi, ell, D */) -> Option</* y */> { unimplemented!() }
+
+impl VdfBackend for ClassGroupBackend {
+    fn eval(seed32: &Hash256, delay_t: u64) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let g = hash_to_class_group(seed32);
+        let (y, pi, ell) = cg_prove(/* g, delay_t, D */);
+        let y_raw = canon_compressed_bytes(/* y */);
+        (y_raw, pi, ell)
+    }
+
+    fn verify(seed32: &Hash256, delay_t: u64, pi: &[u8], ell: &[u8]) -> (bool, Vec<u8>) {
+        match cg_verify(/* seed32, delay_t, pi, ell, D */) {
+            Some(y) => (true, canon_compressed_bytes(/* y */)),
+            None    => (false, Vec::new()),
+        }
+    }
+}
+```
+
+**Canonicality guarantees**:
+
+* `canon_compressed_bytes(y)` must be **unique** for each group element; no alternate encodings accepted.
+
+---
+
+## 8. Serialization for Headers (normative)
+
+When embedding a `Beacon` in a header (MARS), the byte layout is:
+
+```
+serialize_beacon(b):
+    bytes = []
+    bytes += b.seed_commit               // 32
+    bytes += b.vdf_y_core                // 32
+    bytes += b.vdf_y_edge                // 32
+    bytes += LE(|b.vdf_pi|,4)  || b.vdf_pi[..]
+    bytes += LE(|b.vdf_ell|,4) || b.vdf_ell[..]
+```
+
+**Deserialization** must:
+
+* Read the three fixed-width 32-byte fields in order.
+* Read `len_pi = U32LE`, then read exactly `len_pi` bytes for `vdf_pi`.
+* Read `len_ell = U32LE`, then read exactly `len_ell` bytes for `vdf_ell`.
+* Reject if lengths would exceed available bytes or configured caps.
+
+**Canonicality**: All honest implementations produce **bit-identical** bytes for the same Beacon.
+
+---
+
+## 9. Security & Correctness Properties
+
+* **Unbiasability**: `seed_s` fixed by `H("slot.seed", [parent_id, LE(slot,8)])`. No proposer can grind the seed.
+* **Uniqueness**: Backend must define a **single canonical** `Y_raw` for each `(seed, T)`. Any other encoding is invalid.
+* **Determinism**: Verification is equality-only. All honest validators reach the same truth value.
+* **DoS hardening**: `MAX_PI_LEN` and `MAX_ELL_LEN` enforced **before** heavy work; malformed or oversize proofs rejected early.
+* **Upgrade path**: Any change to `VDF_DELAY_T`, modulus/discriminant, hash-to-group mapping, or canonical encoding ⇒ **consensus version bump**.
+
+---
+
+## 10. Performance Notes
+
+* **Evaluation (producer)**: \~80 ms (`EVAL_BUDGET_MS`) on reference hardware.
+* **Verification (validators)**: succinct; constant-time digest equality checks dominate; backend verify cost << eval cost; easily < 1 ms per Beacon on reference hardware.
+* **Parallelism**: Evaluation is sequential by design; verification can be fully parallel across candidate headers (if any) but only a single header should pass MARS equalities.
+
+---
+
+## 11. Integration Points & Inter-Engine Coherence
+
+* **With MARS (Engine 3)**:
+
+  * MARS recomputes `seed_s` and validates the **four VDF equalities** and size caps (this spec).
+  * MARS commits `(seed_commit, vdf_y_core, vdf_y_edge, vdf_pi, vdf_ell)` into headers in the exact field order and serialization (this spec).
+
+* **With LAMEq-X (Engine 1)**:
+
+  * LAMEq-X derives its prover seed for slot *s* from the **parent’s** beacon: `y_edge_{s-1} = parent.vdf_y_edge`.
+  * LAMEq-X challenge derivation also uses `y_edge_{s-1}` and the prover’s label Merkle root (see LAMEq-X spec).
+
+* **With PADA (Engine 4)**:
+
+  * PADA binds each transaction to `y_{s-1} = parent.vdf_y_edge` via `y_bind` in `TxBodyV1`.
+  * Admission checks require `tx.y_bind == y_{s-1}`.
+
+---
+
+## 12. Conformance Checklist (engineer-facing)
+
+* [ ] Integers are **LE fixed-width**; no variable-length ints.
+* [ ] All tags are **ASCII exact**: `"slot.seed"`, `"vdf.ycore.canon"`, `"vdf.edge"`.
+* [ ] `seed_s = H("slot.seed", [parent_id, LE(slot,8)])`.
+* [ ] Backend returns **unique canonical** `Y_raw` for `(seed_s, VDF_DELAY_T)`.
+* [ ] `y_core = H("vdf.ycore.canon", [Y_raw])`; `y_edge = H("vdf.edge", [y_core])`.
+* [ ] `MAX_PI_LEN`, `MAX_ELL_LEN` enforced **pre-verify** and **pre-commit**.
+* [ ] `build_beacon()` and `verify_beacon()` implement byte-for-byte the field order and checks above.
+* [ ] Header serialization uses **exact** order and 4-byte length prefixes for `vdf_pi` and `vdf_ell`.
+* [ ] Any change to delay parameter or encoding ⇒ **version bump**.
+
+---
+
+## 13. Implementation Guidance & Pitfalls
+
+**Hashing**
+
+* Use a constant-time SHA3-256 implementation; never omit length-framing or tag prefixes.
+* Do not cache across slots in ways that can introduce stale inputs for `slot`.
+
+**Backend**
+
+* **RSA (Wesolowski)**:
+
+  * Fix `N` and document its provenance (trusted setup vs verifiable generation).
+  * Ensure `HashToBase` rejects non-invertible elements; document domain separation between hash steps.
+  * Canonicalize residues to **fixed-width big-endian** `|N|` bytes, including leading zeros.
+
+* **Class-Group**:
+
+  * Fix discriminant `D` and canonical representative selection.
+  * Use a **unique compressed** form for `Y_raw`. Define sign/ordering bits explicitly.
+
+**Size checks**
+
+* Always enforce `MAX_PI_LEN` and `MAX_ELL_LEN` **prior** to any heavy verification to bound resource usage.
+
+**Constant-time**
+
+* Digest comparisons (`y_core`, `y_edge`, `seed_commit`) should use constant-time equality.
+
+**Serialization**
+
+* No optional fields. Exactly one `Beacon` layout as specified. Reject any alternative encodings.
+
+---
+
+## 14. Genesis & Edge Cases
+
+* **Genesis slot** `S0`:
+
+  * `parent_id = GENESIS_PARENT_ID` (constant).
+  * `seed_commit = H("slot.seed", [GENESIS_PARENT_ID, LE(S0,8)])`.
+  * `vdf_pi`/`vdf_ell` as produced by backend for `(seed_commit, VDF_DELAY_T)`.
+  * Empty or absent transactions/roots in MARS follow the Merkle empty rule: `H("merkle.empty", [])`.
+
+* **Empty/malformed proofs**:
+
+  * If backend expects `ell` empty (RSA), require `len(ell)==0`; otherwise `BackendInvalid`.
+
+* **Oversize proofs**:
+
+  * `len(pi) > MAX_PI_LEN` or `len(ell) > MAX_ELL_LEN` ⇒ immediate rejection.
+
+---
+
+## 15. Test Vectors (to ship with implementations)
+
+Provide **deterministic** vectors (fix parent id, slot, modulus/discriminant, etc):
+
+1. **Nominal RSA backend**
+
+   * Input: `parent_id`, `slot`, fixed `N`.
+   * Output: `seed_s`, `Y_raw` (|N| bytes), `y_core`, `y_edge`, `pi`, `ell=[]`, serialized Beacon bytes.
+   * Verify: `verify_beacon()` returns `Ok(())`.
+
+2. **Nominal Class-Group backend**
+
+   * Input: `parent_id`, `slot`, fixed `D`.
+   * Output: `seed_s`, `Y_raw` (canonical compressed), `y_core`, `y_edge`, `pi`, `ell`, serialized Beacon bytes.
+
+3. **Seed mismatch**
+
+   * Modify 1 byte in `seed_commit` ⇒ `SeedMismatch`.
+
+4. **Core/edge mismatch**
+
+   * Modify 1 byte in `vdf_y_core` or `vdf_y_edge` ⇒ `CoreMismatch`/`EdgeMismatch`.
+
+5. **Oversize proof rejection**
+
+   * `|pi| = MAX_PI_LEN+1` ⇒ `ProofTooLarge`.
+
+6. **Backend invalid**
+
+   * Corrupt `pi` ⇒ `BackendInvalid`.
+
+All vectors should include hex of every field and the final serialized Beacon to allow **bit-for-bit** validation.
+
+---
+
+## 16. Public API Summary
+
+* **Produce Beacon (proposer path):**
+
+  ```rust
+  build_beacon<B: VdfBackend>(
+      parent_header_id: &Hash256,
+      slot: u64,
+  ) -> Result<Beacon, BuildErr>
+  ```
+
+* **Verify Beacon (validator path):**
+
+  ```rust
+  verify_beacon<B: VdfBackend>(
+      parent_header_id: &Hash256,
+      slot: u64,
+      b: &Beacon,
+  ) -> Result<(), VerifyErr>
+  ```
+
+The API is minimal and sufficient for full consensus integration.
+
+---
+
+## 17. Why This VDF Spec is Fork-Proof & Coherent
+
+* **Fork-proof**: For fixed `(parent, slot)`, `seed_s` is unique; the backend’s canonicalization ensures **one** `Y_raw`; hashing yields unique `y_core` and `y_edge`. The header either satisfies all equalities (and caps) or it does not. At most one header per slot can pass MARS equalities.
+
+* **Coherent with LAMEq-X / PADA / MARS**:
+
+  * LAMEq-X and PADA both consume **`y_{s-1} = parent.vdf_y_edge`**.
+  * MARS validates the exact equalities and size bounds specified here and commits this Beacon byte-for-byte inside the header.
+  * No timing assumptions exist outside the 0–100 ms window; verification is equality-only.
+
+---
+
+**This VDF blueprint is complete, byte-precise, and production-ready.**
+It specifies exact hashing, seed derivation, canonical output digests, strict size caps, serialization order, backend interfaces, error handling, genesis rules, and test vector requirements—fully coherent with LAMEq-X (Engine 1), MARS (Engine 3), and PADA (Engine 4).

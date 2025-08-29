@@ -1,0 +1,748 @@
+Below is the **perfected blueprint** for **Engine 4 — PADA (Protocol Admission = Deterministic Admission)**. It is **byte-precise**, **production-grade**, and **coherent** with Engines **LAMEq-X (E1)**, **VDF (E2)**, and **MARS (E3)**. Every tag, field order, encoding width, comparison, and equality is **normative**. Independent implementations must agree **bit-for-bit**.
+
+---
+
+# Engine 4 — PADA (Protocol Admission = Deterministic Admission)
+
+**Production blueprint (byte-precise, Rust-ready pseudocode).**
+**Pipeline alignment (100 ms / 1 s):**
+
+* **Admission finality**: 0–100 ms of slot *s*.
+* **Execution/settlement**: 100–1000 ms of the **same** slot *s* (lag-0).
+* **MARS (E3)** commits `ticket_root_s` in `Header_s`, and `txroot_{s-1}` (produced by the prior slot’s execution).
+
+PADA decides, deterministically and byte-precisely, which transactions **enter** the protocol in slot *s*, binds them to the slot and the parent beacon, reserves fees/funds, and emits **canonical TicketRecords** that Merklize to `ticket_root_s`. PADA does **not** distribute fees; execution does.
+
+---
+
+## 1. Scope & Guarantees (PADA-only)
+
+* **Deterministic admission = finality**:
+  If a transaction passes PADA checks for slot *s* and is present in `ticket_root_s`, its **admission is final**. Any `Header_s` omitting it is **invalid** under MARS equality.
+* **Execution slot**: `s_exec = s_admit = s`. Settlement for admitted transactions occurs in the same slot’s 100–1000 ms window.
+* **Canonical roots**: TicketRecords for slot *s* are serialized deterministically, sorted lexicographically by `txid` (raw bytes), then Merklized to `ticket_root_s`.
+* **Leaderless, clockless validation**: PADA’s checks are **equality-only**; no trusted time or committees.
+
+---
+
+## 2. Canonical Hashing & Encodings (normative)
+
+* **Integer encoding**: little-endian fixed width only.
+  `LE(x, W)` → exactly *W* bytes; `W ∈ {4, 8, 16}` as specified; **no overlong encodings**.
+* **Hash type**: `Hash256 = [u8; 32]`.
+
+**Domain-tagged SHA3-256 with length framing (global rule):**
+
+```
+H(tag_ascii, parts[]) =
+    SHA3_256( UTF8(tag_ascii)
+              || Σ ( LE(|p|,8) || p ) )
+```
+
+**Binary Merkle tree** (duplicate last when odd):
+
+* Leaf: `H("merkle.leaf", payload)`
+* Node: `H("merkle.node", L || R)`
+* Empty: `H("merkle.empty", [])`
+
+**Normative ASCII tags used by PADA** (exact):
+
+```
+"tx.access"      "tx.body.v1"     "tx.id"         "tx.commit"
+"tx.sig"         "ticket.id"      "ticket.leaf"
+"merkle.leaf"    "merkle.node"    "merkle.empty"
+```
+
+---
+
+## 3. Token Units & Fee Rule (aligned to Tokenomics “a”)
+
+* **Base unit**: Iota.
+  `1 I` (one whole token) `= 100_000_000 Iota`.
+
+* **Minimum transfer**: `MIN_TX_IOTA = 10` (Iota).
+
+* **Deterministic fee function (integer-exact)**:
+
+  * Flat region: if `10 ≤ amount_iota ≤ 1000` → `fee_iota = 10`.
+  * Percent region: if `amount_iota ≥ 1001` → `fee_iota = ceil(amount_iota / 100)`
+    computed as `(amount_iota + 99) / 100`.
+
+Fees are **reserved** at admission; **distribution** (e.g., 40/40/20 or burns) is performed by the executor during settlement.
+
+---
+
+## 4. Canonical Transaction, Message to Sign, and IDs
+
+### 4.1 Access List (deterministic scheduling hints; opaque to PADA)
+
+```
+AccessList {
+    read_accounts  : list<PK>   // PK = [u8;32]
+    write_accounts : list<PK>
+}
+```
+
+Encoding (normative):
+
+```
+encode_access(a) =
+    H("tx.access", [])
+    || LE(|R|,4) || concat(R[0..|R|-1])
+    || LE(|W|,4) || concat(W[0..|W|-1])
+```
+
+Where `R` and `W` are **sorted** and **deduplicated** lexicographically arrays of 32-byte PKs.
+
+---
+
+### 4.2 Transaction Body (bound to slot and beacon)
+
+```
+TxBodyV1 {
+    sender       : PK[32]
+    recipient    : PK[32]
+    nonce        : u64
+    amount_iota  : u128
+    fee_iota     : u128       // must equal fee(amount_iota) per §3
+    s_bind       : u64        // must equal current slot index s_now
+    y_bind       : Hash256    // must equal y_{s-1} = parent.vdf_y_edge
+    access       : AccessList
+    memo         : Bytes      // length-prefixed (mempool should cap)
+}
+```
+
+Canonical bytes (normative, exact order):
+
+```
+canonical_tx_bytes(tx) =
+    H("tx.body.v1", [])
+    || sender
+    || recipient
+    || LE(nonce,8)
+    || LE(amount_iota,16)
+    || LE(fee_iota,16)
+    || LE(s_bind,8)
+    || y_bind
+    || encode_access(access)
+    || LE(|memo|,4) || memo
+```
+
+Identifiers (normative):
+
+```
+txid   = H("tx.id",     [ canonical_tx_bytes(tx) ])
+commit = H("tx.commit", [ canonical_tx_bytes(tx) ])   // carried into TicketRecord
+```
+
+Signature message (normative):
+
+```
+msg_to_sign = H("tx.sig", [ canonical_tx_bytes(tx) ])
+VerifySig(sender_pk, msg_to_sign, sig) -> bool
+```
+
+The signature scheme must be **unique and non-malleable** (e.g., 32-byte PK + 64-byte Ed25519 signature). Any alternate encodings are invalid.
+
+---
+
+## 5. TicketRecord & Canonical Leaf
+
+When a transaction is admitted at slot `s_now`, PADA emits:
+
+```
+TicketRecord {
+    ticket_id   : Hash256 = H("ticket.id", [ txid, LE(s_now,8) ])
+    txid        : Hash256
+    sender      : PK[32]
+    nonce       : u64
+    amount_iota : u128
+    fee_iota    : u128
+    s_admit     : u64      // s_now
+    s_exec      : u64      // s_now  (same-slot settlement)
+    commit_hash : Hash256  // commit = H("tx.commit", [canonical_tx_bytes(tx)])
+}
+```
+
+Canonical Merkle leaf payload (normative, exact order):
+
+```
+enc_ticket_leaf(t) =
+    H("ticket.leaf", [])
+    || t.ticket_id
+    || t.txid
+    || t.sender
+    || LE(t.nonce,8)
+    || LE(t.amount_iota,16)
+    || LE(t.fee_iota,16)
+    || LE(t.s_admit,8)
+    || LE(t.s_exec,8)
+    || t.commit_hash
+```
+
+**Per-slot admission root** (normative):
+
+* Collect all TicketRecords admitted for slot *s*.
+* Sort by ascending `txid` (raw 32-byte bytes).
+* Leaves = `enc_ticket_leaf(t)` for each.
+* `ticket_root_s = MerkleRoot(leaves)` (binary; duplicate last; empty = `H("merkle.empty",[])`).
+
+**MARS** validates `ticket_root_s` by recomputation.
+
+---
+
+## 6. Admission Procedure (= admission finality)
+
+**Inputs**: `(tx: TxBodyV1, sig: Sig)`, current slot `s_now`, parent beacon edge `y_{s-1} = parent.vdf_y_edge`.
+**State**: balances, nonces, reserved amounts, per-slot TicketRecords map.
+
+Deterministic steps (all must pass for admission):
+
+1. **Signature**
+   `VerifySig(tx.sender, H("tx.sig", [canonical_tx_bytes(tx)]), sig) == true`.
+
+2. **Slot binding**
+   `tx.s_bind == s_now`.
+
+3. **Beacon binding**
+   `tx.y_bind == y_{s-1}`.
+
+4. **Nonce**
+   `tx.nonce == next_nonce[tx.sender]` (exact equality).
+
+5. **Amount & fee rule**
+
+   * `tx.amount_iota ≥ 10` (Iota).
+   * `tx.fee_iota == fee_int(tx.amount_iota)` where
+
+     * if `amount_iota ≤ 1000` → `fee_int = 10`
+     * else `fee_int = (amount_iota + 99) / 100`.
+
+6. **Funds & reservation**
+
+   * `total = amount_iota + fee_iota` (with overflow checks).
+   * Require `spendable[sender] ≥ total`.
+   * Mutate **atomically**:
+
+     ```
+     spendable[sender] -= total
+     reserved[sender]  += total
+     next_nonce[sender]++
+     ```
+
+7. **Assign execution slot**
+   `s_exec = s_now`.
+
+8. **Emit TicketRecord**
+   Build `TicketRecord` as in §5; insert into `admitted_by_slot[s_now]`, index by `txid`.
+
+**Finality condition**:
+A transaction is final for admission in slot *s\_now* **iff** it passes steps 1–8 **and** is included in the canonical `ticket_root_s_now`. Under MARS, a header that omits an admitted transaction fails the admission equality and is **invalid**.
+
+---
+
+## 7. Canonical Per-Slot Selection Order (deterministic processing)
+
+To ensure **identical admission sets across nodes** given the same candidate pool for slot *s*, PADA processes candidates in a **canonical order**:
+
+1. Build the *candidate multiset* `C_s` from all validly-signed blobs received **for which** `tx.s_bind == s` and `tx.y_bind == y_{s-1}`.
+2. Derive the *candidate set* `U_s` by **unique** `txid` (duplicate bodies with the same `txid` are identical by construction).
+3. Sort `U_s` by ascending `txid` (raw bytes).
+4. Iterate **in that order**, applying the admission steps (§6). If a candidate fails any step **under the evolving state** (e.g., nonce/insufficient funds), **reject** it for slot *s*.
+5. The resulting per-slot TicketRecords list is **canonical**, leading to a deterministic `ticket_root_s`.
+
+> **Note**: The network/mempool layer should propagate candidate transactions promptly; if a validator did not see a candidate that the proposer included, it must obtain the missing body to recompute `ticket_root_s`. Consensus validity depends on equality of the Merkle root, not on local arrival order.
+
+---
+
+## 8. Rust-Ready Implementation (byte-precise pseudocode)
+
+> Replace cryptographic stubs (`sha3_256`, `verify_sig`) with real implementations. All encodings, tags, and field orders below are **normative**.
+
+```rust
+// ============================= pada.rs =============================
+// Engine 4: PADA — Deterministic Admission (finality within slot)
+// Byte-precise, coherent with VDF (E2) and MARS (E3), LAMEq-X (E1).
+// ==================================================================
+
+#![allow(unused)]
+use alloc::vec::Vec;
+use alloc::collections::{BTreeMap, BTreeSet};
+
+// ——— Types ———————————————————————————————————————————————————————
+pub type Hash256 = [u8; 32];
+pub type PK      = [u8; 32];
+pub type Sig     = [u8; 64];
+
+// ——— Integer encodings ———————————————————————————————————————————
+#[inline]
+pub fn le_bytes<const W: usize>(mut x: u128) -> [u8; W] {
+    let mut out = [0u8; W];
+    for i in 0..W { out[i] = (x & 0xFF) as u8; x >>= 8; }
+    out
+}
+
+// ——— Hashing (domain-tagged, length-framed) ————————————————————
+pub fn sha3_256(_input: &[u8]) -> Hash256 { unimplemented!() }
+
+#[inline]
+pub fn h_tag(tag: &str, parts: &[&[u8]]) -> Hash256 {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(tag.as_bytes());
+    for p in parts {
+        let len = le_bytes::<8>(p.len() as u128);
+        buf.extend_from_slice(&len);
+        buf.extend_from_slice(p);
+    }
+    sha3_256(&buf)
+}
+
+// ——— Signature verification (unique, non-malleable encoding) ————
+pub fn verify_sig(_pk: &PK, _msg: &[u8], _sig: &Sig) -> bool {
+    // Replace with Ed25519/Schnorr verification with canonical encoding.
+    unimplemented!()
+}
+
+// ——— Merkle (binary; duplicate last on odd) ————————————————
+pub fn merkle_leaf(payload: &[u8]) -> Hash256 { h_tag("merkle.leaf", &[payload]) }
+
+pub fn merkle_node(l: &Hash256, r: &Hash256) -> Hash256 {
+    let mut cat = [0u8; 64];
+    cat[..32].copy_from_slice(l);
+    cat[32..].copy_from_slice(r);
+    h_tag("merkle.node", &[&cat])
+}
+
+pub fn merkle_root(leaves_payload: &[Vec<u8>]) -> Hash256 {
+    if leaves_payload.is_empty() { return h_tag("merkle.empty", &[]); }
+    let mut level: Vec<Hash256> = leaves_payload.iter().map(|p| merkle_leaf(p)).collect();
+    while level.len() > 1 {
+        if level.len() % 2 == 1 { level.push(*level.last().unwrap()); }
+        let mut next = Vec::with_capacity(level.len()/2);
+        for i in (0..level.len()).step_by(2) { next.push(merkle_node(&level[i], &level[i+1])); }
+        level = next;
+    }
+    level[0]
+}
+
+// ——— Tokenomics constants ————————————————————————————————————
+pub const MIN_TX_IOTA:       u128 = 10;
+pub const FLAT_SWITCH_IOTA:  u128 = 1_000;  // ≤1000 => flat fee
+pub const FLAT_FEE_IOTA:     u128 = 10;     // flat fee
+pub const PCT_DEN:           u128 = 100;    // 1%
+
+#[inline]
+pub fn fee_int_iota(amount_iota: u128) -> u128 {
+    assert!(amount_iota >= MIN_TX_IOTA);
+    if amount_iota <= FLAT_SWITCH_IOTA { FLAT_FEE_IOTA }
+    else { (amount_iota + (PCT_DEN - 1)) / PCT_DEN }  // ceil(1% of amount)
+}
+
+// ——— Access list & canonical encoding ————————————————————————
+#[derive(Clone, Default)]
+pub struct AccessList {
+    pub read_accounts:  Vec<PK>,
+    pub write_accounts: Vec<PK>,
+}
+
+fn sort_dedup(mut v: Vec<PK>) -> Vec<PK> { v.sort(); v.dedup(); v }
+
+pub fn encode_access(a: &AccessList) -> Vec<u8> {
+    let mut R = sort_dedup(a.read_accounts.clone());
+    let mut W = sort_dedup(a.write_accounts.clone());
+    let mut out = Vec::new();
+    out.extend_from_slice(&h_tag("tx.access", &[]));
+    out.extend_from_slice(&le_bytes::<4>(R.len() as u128));
+    for pk in &R { out.extend_from_slice(pk); }
+    out.extend_from_slice(&le_bytes::<4>(W.len() as u128));
+    for pk in &W { out.extend_from_slice(pk); }
+    out
+}
+
+// ——— Transaction body, canonical bytes, IDs ————————————————
+#[derive(Clone)]
+pub struct TxBodyV1 {
+    pub sender:      PK,
+    pub recipient:   PK,
+    pub nonce:       u64,
+    pub amount_iota: u128,
+    pub fee_iota:    u128,
+    pub s_bind:      u64,
+    pub y_bind:      Hash256,
+    pub access:      AccessList,
+    pub memo:        Vec<u8>,
+}
+
+pub fn canonical_tx_bytes(tx: &TxBodyV1) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&h_tag("tx.body.v1", &[]));
+    out.extend_from_slice(&tx.sender);
+    out.extend_from_slice(&tx.recipient);
+    out.extend_from_slice(&le_bytes::<8>(tx.nonce as u128));
+    out.extend_from_slice(&le_bytes::<16>(tx.amount_iota));
+    out.extend_from_slice(&le_bytes::<16>(tx.fee_iota));
+    out.extend_from_slice(&le_bytes::<8>(tx.s_bind as u128));
+    out.extend_from_slice(&tx.y_bind);
+    out.extend_from_slice(&encode_access(&tx.access));
+    out.extend_from_slice(&le_bytes::<4>(tx.memo.len() as u128));
+    out.extend_from_slice(&tx.memo);
+    out
+}
+
+pub fn txid(tx: &TxBodyV1) -> Hash256 {
+    h_tag("tx.id", &[&canonical_tx_bytes(tx)])
+}
+
+pub fn tx_commit(tx: &TxBodyV1) -> Hash256 {
+    h_tag("tx.commit", &[&canonical_tx_bytes(tx)])
+}
+
+// ——— TicketRecord & canonical leaf encoding ————————————————
+#[derive(Clone)]
+pub struct TicketRecord {
+    pub ticket_id:   Hash256,
+    pub txid:        Hash256,
+    pub sender:      PK,
+    pub nonce:       u64,
+    pub amount_iota: u128,
+    pub fee_iota:    u128,
+    pub s_admit:     u64,
+    pub s_exec:      u64,      // == s_admit
+    pub commit_hash: Hash256,
+}
+
+pub fn enc_ticket_leaf(t: &TicketRecord) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&h_tag("ticket.leaf", &[]));
+    out.extend_from_slice(&t.ticket_id);
+    out.extend_from_slice(&t.txid);
+    out.extend_from_slice(&t.sender);
+    out.extend_from_slice(&le_bytes::<8>(t.nonce as u128));
+    out.extend_from_slice(&le_bytes::<16>(t.amount_iota));
+    out.extend_from_slice(&le_bytes::<16>(t.fee_iota));
+    out.extend_from_slice(&le_bytes::<8>(t.s_admit as u128));
+    out.extend_from_slice(&le_bytes::<8>(t.s_exec as u128));
+    out.extend_from_slice(&t.commit_hash);
+    out
+}
+
+// ——— PADA state (reference in-memory model) ————————————————
+#[derive(Default)]
+pub struct PadaState {
+    // balances
+    pub spendable_iota: BTreeMap<PK, u128>,
+    pub reserved_iota:  BTreeMap<PK, u128>,
+    pub next_nonce:     BTreeMap<PK, u64>,
+
+    // per-slot admission artifacts
+    pub admitted_by_slot: BTreeMap<u64, Vec<TicketRecord>>, // s -> TicketRecords
+    pub tickets_by_txid:  BTreeMap<Hash256, TicketRecord>,  // txid -> record
+}
+
+impl PadaState {
+    pub fn spendable_of(&self, pk: &PK) -> u128 { *self.spendable_iota.get(pk).unwrap_or(&0) }
+    pub fn reserved_of(&self,  pk: &PK) -> u128 { *self.reserved_iota .get(pk).unwrap_or(&0) }
+    pub fn nonce_of(&self,     pk: &PK) -> u64  { *self.next_nonce   .get(pk).unwrap_or(&0) }
+}
+
+// ——— Admission result types ————————————————————————————————
+pub enum AdmitErr {
+    BadSig,
+    WrongSlot,
+    WrongBeacon,
+    NonceMismatch,
+    BelowMinAmount,
+    FeeMismatch,
+    InsufficientFunds,
+}
+
+pub enum AdmitResult {
+    Finalized(TicketRecord), // admission success
+    Rejected(AdmitErr),
+}
+
+// ——— Canonical admission function (single tx) ———————————————
+pub fn pada_try_admit_and_finalize(
+    tx: &TxBodyV1,
+    sig: &Sig,
+    s_now: u64,
+    y_prev: &Hash256,      // y_{s-1} = parent.vdf_y_edge
+    st: &mut PadaState,
+) -> AdmitResult {
+    // 1) Signature
+    let msg = h_tag("tx.sig", &[&canonical_tx_bytes(tx)]);
+    if !verify_sig(&tx.sender, &msg, sig) {
+        return AdmitResult::Rejected(AdmitErr::BadSig);
+    }
+
+    // 2) Slot & beacon binding
+    if tx.s_bind != s_now             { return AdmitResult::Rejected(AdmitErr::WrongSlot); }
+    if tx.y_bind != *y_prev           { return AdmitResult::Rejected(AdmitErr::WrongBeacon); }
+
+    // 3) Nonce
+    if tx.nonce != st.nonce_of(&tx.sender) {
+        return AdmitResult::Rejected(AdmitErr::NonceMismatch);
+    }
+
+    // 4) Amount & fee rule (integer-exact)
+    if tx.amount_iota < MIN_TX_IOTA   { return AdmitResult::Rejected(AdmitErr::BelowMinAmount); }
+    if tx.fee_iota != fee_int_iota(tx.amount_iota) {
+        return AdmitResult::Rejected(AdmitErr::FeeMismatch);
+    }
+
+    // 5) Funds & reservation
+    let total = tx.amount_iota.saturating_add(tx.fee_iota);
+    if st.spendable_of(&tx.sender) < total {
+        return AdmitResult::Rejected(AdmitErr::InsufficientFunds);
+    }
+
+    *st.spendable_iota.entry(tx.sender).or_insert(0) -= total;
+    *st.reserved_iota.entry(tx.sender).or_insert(0)  += total;
+    *st.next_nonce.entry(tx.sender).or_insert(0)     += 1;
+
+    // 6) Deterministic execution slot (same slot)
+    let xid   = txid(tx);
+    let s_exec = s_now;
+
+    // 7) Emit TicketRecord
+    let rec = TicketRecord {
+        ticket_id:   h_tag("ticket.id", &[&xid, &le_bytes::<8>(s_now as u128)]),
+        txid:        xid,
+        sender:      tx.sender,
+        nonce:       tx.nonce,
+        amount_iota: tx.amount_iota,
+        fee_iota:    tx.fee_iota,
+        s_admit:     s_now,
+        s_exec:      s_exec,
+        commit_hash: tx_commit(tx),
+    };
+
+    st.admitted_by_slot.entry(s_now).or_default().push(rec.clone());
+    st.tickets_by_txid.insert(rec.txid, rec.clone());
+
+    AdmitResult::Finalized(rec)
+}
+
+// ——— Canonical per-slot processing (deterministic order) ——————
+//
+// Given a candidate set U_s (unique by txid), sorted by txid ascending,
+// attempt admission for each under evolving state; return the list of
+// successfully admitted TicketRecords for slot s.
+//
+pub fn pada_admit_slot_canonical(
+    s_now: u64,
+    y_prev: &Hash256,
+    candidates_sorted: &[(TxBodyV1, Sig)], // sorted by txid asc
+    st: &mut PadaState,
+) -> Vec<TicketRecord> {
+    let mut out = Vec::new();
+    for (tx, sig) in candidates_sorted {
+        match pada_try_admit_and_finalize(tx, sig, s_now, y_prev, st) {
+            AdmitResult::Finalized(rec) => out.push(rec),
+            AdmitResult::Rejected(_)    => { /* ignore for this slot */ }
+        }
+    }
+    out
+}
+
+// ——— Build per-slot ticket_root (leaves + root) ——————————————
+pub fn pada_build_ticket_root_for_slot(s: u64, st: &PadaState) -> (Vec<Vec<u8>>, Hash256) {
+    let mut L = st.admitted_by_slot.get(&s).cloned().unwrap_or_default();
+    // Canonical order: ascending txid (raw bytes)
+    L.sort_by(|a, b| a.txid.cmp(&b.txid));
+    let leaves: Vec<Vec<u8>> = L.iter().map(|t| enc_ticket_leaf(t)).collect();
+    let root = merkle_root(&leaves);
+    (leaves, root)
+}
+```
+
+---
+
+## 9. Integration with the 100 ms / 1 s Pipeline
+
+**At the start of slot `s` (0–100 ms finality window):**
+
+1. **VDF (E2)**: `seed_s = H("slot.seed",[parent_id, LE(s,8)])`; producers evaluate; validators verify beacon equalities; `y_{s-1} = parent.vdf_y_edge` is already known.
+2. **PADA (E4)**:
+
+   * Gather candidates with `(s_bind == s, y_bind == y_{s-1})`.
+   * Deduplicate by `txid`; sort ascending by `txid`.
+   * Run `pada_admit_slot_canonical`.
+   * Compute `(leaves_s, ticket_root_s) = pada_build_ticket_root_for_slot(s, …)`.
+3. **MARS (E3)**:
+
+   * Deterministically compute `txroot_{s-1}` (previous slot execution).
+   * Build `Header_s` with the VDF fields and `ticket_root_s`, `txroot_{s-1}`.
+   * `mars_validate_header` checks equalities; if all hold, `Header_s` is the unique valid header.
+
+**During 100–1000 ms of slot `s` (settlement window):**
+
+* Execution processes all `TicketRecords` with `s_exec = s` deterministically (using access lists for scheduling where applicable), produces `txroot_s` that will be committed by `Header_{s+1}`.
+
+---
+
+## 10. Determinism, Safety, and DoS Hardening
+
+* **Determinism**:
+  Canonical candidate ordering (by `txid`) plus strict nonce equality ensures all honest nodes admit the **same** subset of candidates given the same pool.
+* **Finality at admission**:
+  Inclusion in `ticket_root_s` is final for admission; omission makes `Header_s` invalid under MARS.
+* **Replay resistance**:
+  `s_bind == s` and `y_bind == y_{s-1}` bind every transaction to the target slot and its parent beacon; replay across slots fails equalities.
+* **Economic integrity**:
+  Reservation of `amount + fee` at admission means execution cannot underfund; fee equality guarantees Tokenomics compliance.
+* **DoS hardening**:
+  Mempool must enforce byte caps for `memo` and per-slot input volume. PADA itself performs only bounded state writes and fixed-cost hashing/verification.
+  Consensus objects (TicketRecord leaves) are fixed size; Merkle structure is O(n) hashing.
+
+---
+
+## 11. Edge Cases & Invariants
+
+* **Duplicate tx bodies**: Identical bodies yield identical `txid`; deduped before processing.
+* **Conflicting nonces**: Only the **first** admitted transaction per sender (matching `next_nonce`) can pass; later ones with the same nonce fail deterministically under evolving state.
+* **Insufficient funds**: Rejected deterministically at step 6.
+* **Zero or negative amounts**: Rejected by `amount_iota ≥ MIN_TX_IOTA`.
+* **Empty slot**: `ticket_root_s = H("merkle.empty",[])`.
+* **Overflow checks**: Use saturating add for `total`, then compare against balances; any actual overflow (impossible with `u128` at sane supply) must be treated as invalid input.
+
+---
+
+## 12. Inter-Engine Coherence
+
+* **With VDF (E2)**:
+  PADA consumes `y_{s-1} = parent.vdf_y_edge` via `y_bind`. Any mismatch in `y_bind` triggers `WrongBeacon`.
+* **With LAMEq-X (E1)**:
+  Independent; both bind to the same `y_{s-1}`. LAMEq-X may expose a participation set `P_s`; PADA does not depend on it.
+* **With MARS (E3)**:
+  MARS calls its `TicketRootProvider` (implemented over PADA state) to recompute `ticket_root_s`. Field layout and hashing here match MARS’s expectations exactly (tag strings and order).
+
+---
+
+## 13. Conformance Checklist (engineer-facing)
+
+* [ ] Integers are **LE fixed width** where specified (`4/8/16` bytes).
+* [ ] Tags used **exactly**: `"tx.access"`, `"tx.body.v1"`, `"tx.id"`, `"tx.commit"`, `"tx.sig"`, `"ticket.id"`, `"ticket.leaf"`, `"merkle.leaf"`, `"merkle.node"`, `"merkle.empty"`.
+* [ ] `encode_access` sorts/dedups PK lists; encodes counts with **LE(4)**; concatenates raw 32-byte PKs.
+* [ ] `canonical_tx_bytes` order is exact; `memo` is length-prefixed with **LE(4)**; no optional/alternate fields.
+* [ ] `txid = H("tx.id",[canonical_tx_bytes])`, `commit = H("tx.commit",[canonical_tx_bytes])`.
+* [ ] Signature verified over `H("tx.sig",[canonical_tx_bytes])`; use a **unique, non-malleable** signature encoding (e.g., 64-byte Ed25519).
+* [ ] Admission steps 1–8 enforced exactly; **atomic** balance/nonce mutation on success.
+* [ ] Per-slot canonical selection: unique by `txid`, sorted by `txid` ascending, iterate under evolving state.
+* [ ] `enc_ticket_leaf` exact field order; `ticket_root_s = MerkleRoot(leaves)`, binary, duplicate last; empty = `H("merkle.empty",[])`.
+* [ ] `s_exec == s_admit == s`.
+* [ ] Providers for MARS compute roots deterministically from local PADA state.
+
+---
+
+## 14. Test Vectors (ship with implementation)
+
+Each vector should include **hex** for all inputs, canonical bytes, and outputs.
+
+1. **Nominal admission**
+
+   * Inputs: `s_now`, `y_{s-1}`, sender PK/SK, initial balances/nonces; 2–3 transactions with increasing nonces and valid fees.
+   * Outputs: `txid`s, `TicketRecord`s, `enc_ticket_leaf` bytes, `ticket_root_s`.
+
+2. **Fee mismatch**
+
+   * Same transaction with `fee_iota` off by 1 → `FeeMismatch`.
+
+3. **Wrong beacon**
+
+   * `y_bind` not equal to `y_{s-1}` → `WrongBeacon`.
+
+4. **Nonce conflict**
+
+   * Two transactions from same sender with the same nonce in `U_s`; only one should admit deterministically (earlier in `txid` order).
+
+5. **Insufficient funds**
+
+   * Balance < `amount + fee` → `InsufficientFunds`.
+
+6. **Empty slot**
+
+   * No admitted transactions → `ticket_root_s = H("merkle.empty",[])`.
+
+7. **Deterministic ordering**
+
+   * Shuffle candidate arrival order; prove the admitted set and `ticket_root_s` are identical due to canonical `txid` sorting.
+
+---
+
+## 15. Execution Handoff (non-consensus notes; for the executor)
+
+* During 100–1000 ms of slot *s*, the executor:
+
+  1. Constructs the ordered worklist using `TicketRecords` with `s_exec = s` (e.g., schedule via access lists, respecting conflicts).
+  2. Moves `amount_iota` and `fee_iota` from `reserved` to on-chain destinations (recipient, fee accumulators) deterministically.
+  3. Emits executed `txid`s to form `txroot_s` (leaves: `enc_txid_leaf(txid)`), which MARS will commit in `Header_{s+1}`.
+
+PADA ensures funds are reserved; properly implemented executors cannot observe underfunding at settlement.
+
+---
+
+## 16. Public Interfaces (host-node API summary)
+
+**Admission (single tx)**
+
+```rust
+pada_try_admit_and_finalize(
+    tx: &TxBodyV1,
+    sig: &Sig,
+    s_now: u64,
+    y_prev: &Hash256,
+    st: &mut PadaState,
+) -> AdmitResult
+```
+
+**Admission (canonical per-slot batch)**
+
+```rust
+pada_admit_slot_canonical(
+    s_now: u64,
+    y_prev: &Hash256,
+    candidates_sorted: &[(TxBodyV1, Sig)], // sorted by txid asc
+    st: &mut PadaState,
+) -> Vec<TicketRecord>
+```
+
+**Ticket root**
+
+```rust
+pada_build_ticket_root_for_slot(
+    s: u64,
+    st: &PadaState,
+) -> (Vec<Vec<u8>>, Hash256) // (leaves, root)
+```
+
+These are sufficient to implement MARS’s `TicketRootProvider` for equality validation.
+
+---
+
+## 17. Why PADA is Fork-Proof & Coherent
+
+* **Fork-proof admission**: For fixed `(parent, s)`, `y_{s-1}` is unique (E2/MARS). PADA’s candidate filter `(s_bind==s, y_bind==y_{s-1})`, `txid`-sorted iteration, and nonce/funding checks yield a **unique** TicketRecord set and thus a unique `ticket_root_s`.
+* **MARS equality**: `Header_s` is valid **iff** `ticket_root_s` equals the canonical result. A competing header with a different `ticket_root_s` is invalid.
+* **Coherence**:
+
+  * **VDF (E2)** provides `y_{s-1}` used by `y_bind`.
+  * **MARS (E3)** relies on the exact `enc_ticket_leaf` bytes and Merkle rules here.
+  * **LAMEq-X (E1)** is independent but uses the same beacon lineage; no cross-dependence.
+
+---
+
+## 18. Implementation Guidance & Pitfalls
+
+* **Hashing**: Use constant-time SHA3-256; never omit length framing or tags.
+* **Signatures**: Ed25519 with canonical encodings; reject non-canonical signatures.
+* **Memo limits** (mempool policy): cap memo size (e.g., 4–16 KiB) and cap per-slot candidate volume; these are outside consensus but essential for robustness.
+* **Atomicity**: Admission success must update `spendable`, `reserved`, `next_nonce` atomically to avoid race conditions.
+* **Deterministic candidate order**: Always sort by `txid` before running stepwise admission.
+* **Overflow checks**: Use safe arithmetic; treat overflows as invalid inputs.
+* **Sidecar propagation** (operational): ensure admitted tx bodies are gossiped/retrievable so validators can reconstruct `ticket_root_s` if needed during validation.
+
+---
+
+**This PADA blueprint is complete, byte-precise, and production-ready.**
+It specifies canonical encodings, fee math, admission checks, state mutations, selection order, Merkle commitment, and Rust-style APIs, and is fully coherent with **LAMEq-X (E1)**, **VDF (E2)**, and **MARS (E3)**. Independent implementations following this document will agree **bit-for-bit** on admission decisions and `ticket_root_s` for every slot.

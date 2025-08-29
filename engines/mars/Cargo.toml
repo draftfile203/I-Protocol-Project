@@ -1,0 +1,52 @@
+[package]
+name = "iprotocol-mars"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Engine 3: MARS (Mathematical Absolute Resolution System) for I Protocol V5"
+readme = "../../README.md"
+keywords = ["blockchain", "consensus", "headers", "merkle", "deterministic"]
+categories = ["algorithms", "data-structures"]
+
+[dependencies]
+# Shared cryptographic foundations
+iprotocol-crypto = { path = "../../crypto" }
+
+# Cryptography
+sha3 = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+bincode = { workspace = true }
+
+# Big integers
+primitive-types = { workspace = true }
+
+# Collections
+indexmap = { workspace = true }
+
+# Utilities
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+once_cell = { workspace = true }
+
+# Logging
+log = { workspace = true }
+
+# Engine dependencies (for integration)
+iprotocol-vdf = { path = "../vdf" }
+iprotocol-pada = { path = "../pada" }
+iprotocol-lameqx = { path = "../lameqx" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+env_logger = { workspace = true }
+
+[features]
+default = ["std"]
+std = []
+validation = []  # Enable header validation
+builder = []     # Enable header building

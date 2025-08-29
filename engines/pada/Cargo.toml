@@ -1,0 +1,25 @@
+[package]
+name = "iprotocol-pada"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Engine 4: PADA (Protocol Admission = Deterministic Admission) for I Protocol V5"
+readme = "../../README.md"
+keywords = ["blockchain", "consensus", "admission", "transactions", "deterministic"]
+categories = ["algorithms", "data-structures"]
+
+[dependencies]
+sha3 = "0.10"
+ed25519-dalek = { version = "2.0", features = ["rand_core"] }
+iprotocol-crypto = { path = "../../crypto" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[features]
+default = ["std"]
+std = []
+mempool = []     # Enable mempool functionality
+validation = []  # Enable transaction validation

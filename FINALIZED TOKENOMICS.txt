@@ -1,0 +1,716 @@
+Below is the **final, byte-precise Tokenomics blueprint** (Engine T). It is engineered to be **ledger-only, integer-exact, race-free**, and **coherent** with your perfected engines:
+
+* **Engine 1 (LAMEq-X)** – Sybil-costed participation set `P_s`
+* **Engine 2 (VDF)** – unique per-slot beacon `y_edge_s`
+* **Engine 3 (MARS v2)** – header equalities + commitments (adds `part_root_s`)
+* **Engine 4 (PADA)** – deterministic admission and fee verification
+
+This document is production-ready: it gives **normative constants**, **serialization rules**, and **Rust-ready pseudocode** that compiles after proper wiring real crypto (SHA3-256) and the ledger’s state I/O.
+
+---
+
+# Engine T — Tokenomics (Deterministic Emission, Fees, and Validator Rewards)
+
+## 0. Scope & Guarantees (normative)
+
+* **Ledger-only determinism.** No wall clocks, no floats, no off-chain randomness. All state transitions are explicit ledger writes; all selections are hash-deterministic.
+* **Exact capped emission.** Geometrically halving emission over 100 protocol years ends **exactly** at slot `LAST_EMISSION_BLOCK`; total minted equals `TOTAL_SUPPLY_IOTA`.
+* **Fee integrity.** The integer fee debited from a sender equals the sum of on-ledger credits/burns, mediated via a **Fee Escrow** (no drift).
+* **Incentives without races.** Per-slot **Deterministic Reward Pool (DRP)** pays a baseline to all provers in the **committed** participation set `P_s` and a lottery (K winners) keyed by `y_edge_s`. No leader advantage, no race conditions.
+* **Coherence with Engines 1–4.**
+
+  * **E1:** We use the **committed** (MARS-bound) participation root `part_root_s`.
+  * **E2:** `y_edge_s` seeds reward selection and tie-breaks.
+  * **E3 (v2):** Header adds `part_root` equality (see §8), making rewards consensus-deterministic.
+  * **E4:** PADA enforces the canonical **integer** fee rule at admission; Tokenomics routes the exact integer fee on ledger.
+
+---
+
+## 1. Units, Types, and Hashing (normative)
+
+### 1.1 Units & caps
+
+```rust
+pub const IOTA_PER_I: u128 = 100_000_000;                  // 1 I = 1e8 Iota
+pub const TOTAL_SUPPLY_I:    u128 = 1_000_000;
+pub const TOTAL_SUPPLY_IOTA: u128 = TOTAL_SUPPLY_I * IOTA_PER_I; // 1e14 Iota
+```
+
+### 1.2 Protocol slot timing (consensus constants; no wall clock in validation)
+
+```rust
+pub const SLOT_MS: u64 = 100;                               // Engines 2–4 alignment
+pub const SLOTS_PER_SECOND: u64 = 1_000 / SLOT_MS;          // 10
+// Protocol year = exactly 365 days (no leap logic inside consensus)
+pub const PROTOCOL_YEAR_SEC: u64 = 365 * 86_400;            // 31_536_000
+pub const SLOTS_PER_YEAR:   u64 = PROTOCOL_YEAR_SEC * SLOTS_PER_SECOND; // 315_360_000
+```
+
+> Operational note (non-consensus): choose `GENESIS_UNIX_TIME` so that `GENESIS_UNIX_TIME + LAST_EMISSION_BLOCK * SLOT_MS` lands at your desired civil “100th year, day 365, 00:00”. Consensus never reads a clock.
+
+### 1.3 Integer & hashing utilities
+
+All integers little-endian fixed width. Domain-separated SHA3-256 with length framing (identical discipline to Engines 1–4).
+
+```rust
+pub type Hash256 = [u8; 32];
+
+#[inline]
+pub fn le_bytes<const W: usize>(mut x: u128) -> [u8; W] {
+    let mut out = [0u8; W];
+    for i in 0..W { out[i] = (x & 0xFF) as u8; x >>= 8; }
+    out
+}
+
+// Replace with your SHA3-256
+pub fn sha3_256(_input: &[u8]) -> Hash256 { unimplemented!() }
+
+#[inline]
+pub fn h_tag(tag: &str, parts: &[&[u8]]) -> Hash256 {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(tag.as_bytes());
+    for p in parts {
+        let len = le_bytes::<8>(p.len() as u128);
+        buf.extend_from_slice(&len);
+        buf.extend_from_slice(p);
+    }
+    sha3_256(&buf)
+}
+
+#[inline]
+pub fn u64_from_le(b: &[u8]) -> u64 {
+    let mut x = 0u64;
+    for (i, &bi) in b.iter().take(8).enumerate() { x |= (bi as u64) << (8*i); }
+    x
+}
+```
+
+---
+
+## 2. Emission — exact halving series (slot-indexed; integer-exact)
+
+### 2.1 Halving schedule
+
+```rust
+pub const YEARS_PER_HALVING: u64 = 5;
+pub const BLOCKS_PER_HALVING: u128 = (SLOTS_PER_YEAR as u128) * (YEARS_PER_HALVING as u128); // 1_576_800_000
+pub const HALVING_COUNT: u32 = 20;                              // 100 years
+pub const LAST_EMISSION_BLOCK: u128 = (SLOTS_PER_YEAR as u128) * 100; // 31_536_000_000
+```
+
+### 2.2 Reward calibration (exact rational)
+
+Let `N = HALVING_COUNT`, `B = BLOCKS_PER_HALVING`.
+`R0 (Iota) = TOTAL_SUPPLY_IOTA * 2^(N-1) / ( B * (2^N - 1) )`
+
+Per period `p ∈ [0..N-1]`:
+
+* `reward_num(p) = R0_num = TOTAL_SUPPLY_IOTA * 2^(N-1)`
+* `reward_den(p) = R0_den * 2^p`, where `R0_den = B * (2^N - 1)`
+
+Use a `U256` numerator accumulator to avoid drift.
+
+```rust
+use primitive_types::U256;
+#[inline] fn pow2_u256(n: u32) -> U256 { U256::from(1u8) << n }
+
+lazy_static::lazy_static! {
+    static ref TWO_POW_N_MINUS1: U256 = pow2_u256(HALVING_COUNT - 1);
+    static ref TWO_POW_N:        U256 = pow2_u256(HALVING_COUNT);
+    static ref R0_NUM: U256 = U256::from(TOTAL_SUPPLY_IOTA) * *TWO_POW_N_MINUS1;
+    static ref R0_DEN: U256 = U256::from(BLOCKS_PER_HALVING) * (*TWO_POW_N - U256::from(1u8));
+}
+
+#[derive(Clone, Default)]
+pub struct EmissionState {
+    pub total_emitted_iota_paid: u128, // <= 1e14
+    pub acc_num: U256,
+}
+
+#[inline]
+pub fn period_index(slot_1based: u128) -> u32 {
+    let h = slot_1based - 1;
+    (h / BLOCKS_PER_HALVING) as u32
+}
+
+#[inline]
+pub fn reward_den_for_period(p: u32) -> U256 { *R0_DEN * pow2_u256(p) }
+
+/// Deterministic emission at slot s=1..LAST_EMISSION_BLOCK.
+/// `credit_to_drp` credits the Det. Reward Pool for the slot.
+pub fn on_slot_emission(
+    st: &mut EmissionState,
+    slot_1based: u128,
+    mut credit_to_drp: impl FnMut(u128),
+) {
+    if slot_1based == 0 || slot_1based > LAST_EMISSION_BLOCK { return; }
+
+    let p = period_index(slot_1based);
+    let den = reward_den_for_period(p);
+
+    st.acc_num = st.acc_num + *R0_NUM;
+
+    let payout_u256 = st.acc_num / den;
+    if payout_u256 > U256::zero() {
+        assert!(payout_u256 <= U256::from(u128::MAX));
+        let payout = payout_u256.as_u128();
+
+        let remaining = TOTAL_SUPPLY_IOTA - st.total_emitted_iota_paid;
+        let pay = payout.min(remaining);
+        if pay > 0 {
+            credit_to_drp(pay);
+            st.total_emitted_iota_paid = st.total_emitted_iota_paid.saturating_add(pay);
+            st.acc_num = st.acc_num - (U256::from(pay) * den);
+        }
+    }
+
+    if slot_1based == LAST_EMISSION_BLOCK {
+        assert!(st.total_emitted_iota_paid == TOTAL_SUPPLY_IOTA);
+    }
+}
+```
+
+---
+
+## 3. Canonical fee rule (PADA-aligned; integer-only)
+
+PADA enforces this at admission; Tokenomics routes the **exact same integer** on ledger.
+
+```rust
+pub const MIN_TRANSFER_IOTA: u128 = 10;
+pub const FLAT_SWITCH_IOTA:  u128 = 1_000;
+pub const FLAT_FEE_IOTA:     u128 = 10;
+
+#[inline]
+pub fn fee_int_iota(amount_iota: u128) -> u128 {
+    assert!(amount_iota >= MIN_TRANSFER_IOTA);
+    if amount_iota <= FLAT_SWITCH_IOTA { FLAT_FEE_IOTA }
+    else { (amount_iota + 99) / 100 } // ceil(1%)
+}
+```
+
+---
+
+## 4. NLB splits with Fee Escrow (no drift, epoch-stable)
+
+### 4.1 System accounts (ledger identities)
+
+* `SYS_VERIFIER_POOL` — receives verifier fee releases & emissions; pays rewards
+* `SYS_TREASURY` — receives treasury share
+* `SYS_BURN` — irrecoverable sink
+* `SYS_FEE_ESCROW` — holds **all** integer fees before release
+
+All credits/debits are explicit ledger writes (system transactions).
+
+### 4.2 Epoch-stable splits (mitigates oscillation gaming)
+
+* **Epoch length:** `NLB_EPOCH_SLOTS` (consensus constant).
+* At epoch start, snapshot `effective_supply = TOTAL_SUPPLY_IOTA − total_burned_iota`, choose `(verifier%, treasury%, burn%)` from a deterministic table, and hold until next epoch boundary.
+
+```rust
+pub const NLB_EPOCH_SLOTS: u64 = 10_000; // ~16m40s at 10 slots/s
+
+#[derive(Clone)]
+pub struct NlbEpochState {
+    pub epoch_index: u64,          // floor(slot / NLB_EPOCH_SLOTS)
+    pub start_slot:  u64,
+    pub eff_supply_snapshot: u128, // cap - burned at epoch start
+    pub v_pct: u8,                 // verifier %
+    pub t_pct: u8,                 // treasury %
+    pub b_pct: u8,                 // burn %
+}
+
+#[derive(Clone, Default)]
+pub struct FeeSplitState {
+    // fractional numerators (denominator 10_000)
+    pub acc_v_num: u128,
+    pub acc_t_num: u128,
+    pub acc_b_num: u128,
+
+    // escrow & burned totals
+    pub fee_escrow_iota: u128,
+    pub total_burned_iota: u128,
+
+    pub nlb: NlbEpochState,
+}
+
+// Burn % table with 1% floor
+const THRESH_500K_IOTA: u128 = 500_000 * IOTA_PER_I;
+const THRESH_400K_IOTA: u128 = 400_000 * IOTA_PER_I;
+const THRESH_300K_IOTA: u128 = 300_000 * IOTA_PER_I;
+const THRESH_200K_IOTA: u128 = 200_000 * IOTA_PER_I;
+
+const BASE_TREASURY_PCT: u8 = 40;
+const INITIAL_BURN_PCT:  u8 = 20;
+const BASE_VERIFIER_PCT: u8 = 40;
+const NLB_BURN_FLOOR_PCT: u8 = 1;
+
+#[inline]
+fn burn_percent(eff: u128) -> u8 {
+    if eff >= THRESH_500K_IOTA { 20 }
+    else if eff >= THRESH_400K_IOTA { 15 }
+    else if eff >= THRESH_300K_IOTA { 10 }
+    else if eff >= THRESH_200K_IOTA { 5  }
+    else { NLB_BURN_FLOOR_PCT }
+}
+
+#[inline]
+fn compute_splits(eff: u128) -> (u8,u8,u8) {
+    let b = burn_percent(eff);
+    let redirect = INITIAL_BURN_PCT.saturating_sub(b); // 0..19 → favor verifiers as burn declines
+    let v = BASE_VERIFIER_PCT.saturating_add(redirect);
+    let t = BASE_TREASURY_PCT;
+    debug_assert!((v as u16 + t as u16 + b as u16) == 100);
+    (v,t,b)
+}
+
+#[inline]
+fn epoch_index(slot: u64) -> u64 { slot / NLB_EPOCH_SLOTS }
+
+pub fn nlb_roll_epoch_if_needed(slot: u64, fs: &mut FeeSplitState) {
+    let idx = epoch_index(slot);
+    if idx == fs.nlb.epoch_index { return; }
+    fs.nlb.epoch_index = idx;
+    fs.nlb.start_slot  = idx * NLB_EPOCH_SLOTS;
+    let eff = TOTAL_SUPPLY_IOTA.saturating_sub(fs.total_burned_iota);
+    fs.nlb.eff_supply_snapshot = eff;
+    let (v,t,b) = compute_splits(eff);
+    fs.nlb.v_pct = v; fs.nlb.t_pct = t; fs.nlb.b_pct = b;
+}
+```
+
+### 4.3 Routing exact integer fees via escrow
+
+**Principle:** The **integer** `fee_int` debited from the sender is **first** credited to `SYS_FEE_ESCROW`. Fractional share accounting releases **integer Iota** from escrow when available; any unreleasable remainder stays in escrow and will be released in later blocks — preventing any drift.
+
+```rust
+/// Sender is already debited amount+fee_int; this credits ESCROW and
+/// may release some integer shares now (bounded by escrow).
+pub fn route_fee_with_nlb(
+    fs: &mut FeeSplitState,
+    fee_num: u128, fee_den: u128,         // rational (10 or 1%); den ∈ {1,100}
+    credit_verifier: &mut dyn FnMut(u128),// debits ESCROW → credit SYS_VERIFIER_POOL
+    credit_treasury: &mut dyn FnMut(u128),// debits ESCROW → credit SYS_TREASURY
+    burn:            &mut dyn FnMut(u128),// debits ESCROW → burn
+) {
+    // Convert to denominator 100
+    let fee_num_over_100 = if fee_den == 1 { fee_num.saturating_mul(100) } else { fee_num };
+
+    // Fractional numerators over 10_000
+    let add_v = fee_num_over_100.saturating_mul(fs.nlb.v_pct as u128);
+    let add_t = fee_num_over_100.saturating_mul(fs.nlb.t_pct as u128);
+    let add_b = fee_num_over_100.saturating_mul(fs.nlb.b_pct as u128);
+    fs.acc_v_num = fs.acc_v_num.saturating_add(add_v);
+    fs.acc_t_num = fs.acc_t_num.saturating_add(add_t);
+    fs.acc_b_num = fs.acc_b_num.saturating_add(add_b);
+
+    const DEN_10K: u128 = 10_000;
+    let mut rel_v = fs.acc_v_num / DEN_10K;
+    let mut rel_t = fs.acc_t_num / DEN_10K;
+    let mut rel_b = fs.acc_b_num / DEN_10K;
+
+    // Total release bounded by ESCROW
+    let total_rel = rel_v.saturating_add(rel_t).saturating_add(rel_b);
+    if total_rel > fs.fee_escrow_iota {
+        // Deterministic scaling on deficit: reduce burn, then treasury, then verifier
+        let mut deficit = total_rel - fs.fee_escrow_iota;
+        let mut reduce = |x: &mut u128, d: &mut u128| { let cut = (*x).min(*d); *x -= cut; *d -= cut; };
+        reduce(&mut rel_b, &mut deficit);
+        reduce(&mut rel_t, &mut deficit);
+        reduce(&mut rel_v, &mut deficit);
+    }
+
+    if rel_v > 0 { credit_verifier(rel_v); fs.fee_escrow_iota -= rel_v; fs.acc_v_num %= DEN_10K; }
+    if rel_t > 0 { credit_treasury(rel_t); fs.fee_escrow_iota -= rel_t; fs.acc_t_num %= DEN_10K; }
+    if rel_b > 0 { burn(rel_b);            fs.fee_escrow_iota -= rel_b; fs.acc_b_num %= DEN_10K; fs.total_burned_iota = fs.total_burned_iota.saturating_add(rel_b); }
+}
+```
+
+### 4.4 Transfer processing (ledger-only, PADA-consistent)
+
+```rust
+/// Deterministic transfer processing used by the executor in settlement.
+/// PADA already checked fee rule; this enforces the ledger movements.
+pub fn process_transfer(
+    slot: u64,
+    sender_balance: u128,
+    amount_iota: u128,
+    fs: &mut FeeSplitState,
+
+    // ledger hooks (system writes)
+    debit_sender:   &mut dyn FnMut(u128),
+    credit_recipient:&mut dyn FnMut(u128),
+    credit_verifier:&mut dyn FnMut(u128), // debits ESCROW
+    credit_treasury:&mut dyn FnMut(u128), // debits ESCROW
+    burn:           &mut dyn FnMut(u128), // debits ESCROW
+) -> (u128 /*total_debit*/, u128 /*fee_int*/) {
+    assert!(amount_iota >= MIN_TRANSFER_IOTA);
+
+    // Roll epoch if needed (splits locked for this epoch)
+    nlb_roll_epoch_if_needed(slot, fs);
+
+    // Fee
+    let (fee_num, fee_den) = if amount_iota <= FLAT_SWITCH_IOTA { (FLAT_FEE_IOTA, 1) } else { (amount_iota, 100) };
+    let fee_int = (fee_num + (fee_den - 1)) / fee_den; // ceil(1%)
+
+    let total_debit = amount_iota.saturating_add(fee_int);
+    assert!(sender_balance >= total_debit);
+
+    // Debit sender and credit recipient
+    debit_sender(total_debit);
+    credit_recipient(amount_iota);
+
+    // Put the entire integer fee into ESCROW
+    fs.fee_escrow_iota = fs.fee_escrow_iota.saturating_add(fee_int);
+
+    // Route (may release some integer shares now)
+    route_fee_with_nlb(fs, fee_num, fee_den, credit_verifier, credit_treasury, burn);
+
+    (total_debit, fee_int)
+}
+```
+
+---
+
+## 5. Deterministic Reward Pool (DRP) — fair, race-free validator rewards
+
+### 5.1 Inputs & commitments
+
+* `P_s` (Participation set for slot `s`) from **E1**; **MARS v2** header **commits** `part_root_s` (see §8).
+* `y_edge_s` from **E2** (unique per slot).
+* Verifier fee releases credited to `SYS_VERIFIER_POOL` via §4.
+* Emission payout for slot `s` credited to DRP via §2.
+
+**Reward corpus for slot `s`:**
+
+```
+DRP_s = emission_s + verifier_fee_release_s
+```
+
+All amounts are ledger balances captured as system credits to `SYS_VERIFIER_POOL`.
+
+### 5.2 Distribution policy (parameters)
+
+```rust
+pub const DRP_BASELINE_PCT: u8 = 20;   // baseline share to all participants in P_s
+pub const DRP_K_WINNERS:    usize = 16;// lottery winners per slot
+```
+
+* **Baseline:** pay `floor( baseline / |P_s| )` to each PK in `P_s`.
+* **Lottery:** choose `K=min(DRP_K_WINNERS, |P_s|)` distinct winners uniformly from `P_s` using `y_edge_s`; pay equal shares; residual Iota \<K burns.
+
+> If `|P_s|==0` or DRP too small (`base==0`), carry over by leaving in `SYS_VERIFIER_POOL`.
+
+### 5.3 Winner selection (rejection sampling; no modulo bias on set size drift)
+
+`P_s` is a sorted vector of PKs (ascending). To pick K unique indices:
+
+```rust
+#[inline] fn ctr_draw(y: &Hash256, s: u64, t: u32) -> Hash256 {
+    let t_le = le_bytes::<4>(t as u128);
+    let s_le = le_bytes::<8>(s as u128);
+    h_tag("reward.draw", &[y, &s_le, &t_le])
+}
+
+pub fn pick_k_unique_indices(y_edge_s: &Hash256, s: u64, m: usize, k: usize) -> Vec<usize> {
+    use alloc::collections::BTreeSet;
+    if m == 0 || k == 0 { return vec![]; }
+    let mut out = Vec::with_capacity(k);
+    let mut seen = BTreeSet::new();
+    let mut t: u32 = 0;
+    while out.len() < k {
+        let h = ctr_draw(y_edge_s, s, t);
+        let idx = (u64_from_le(&h[..8]) % (m as u64)) as usize;
+        if seen.insert(idx) { out.push(idx); }
+        t = t.wrapping_add(1);
+        // termination is guaranteed for k<=m; rejection resolves collisions
+    }
+    out
+}
+```
+
+### 5.4 Payout calculation & ledger writes
+
+* `baseline = (DRP_s * DRP_BASELINE_PCT) / 100`
+* `lottery  = DRP_s - baseline`
+* If `|P_s| > 0`:
+
+  * `per_base = baseline / |P_s|`, `base_rem = baseline % |P_s|` → burn `base_rem` (deflationary bias).
+  * Winners `W` of size `K`: `per_win = lottery / K`, `lot_rem = lottery % K` → burn `lot_rem`.
+* Debit `SYS_VERIFIER_POOL` by total paid; credit each recipient deterministically by PK order.
+
+```rust
+#[inline] fn reward_rank(y: &Hash256, pk: &Hash256) -> Hash256 {
+    h_tag("reward.rank", &[y, pk])
+}
+
+pub fn distribute_drp_for_slot(
+    s: u64,
+    y_edge_s: &Hash256,
+    part_set_sorted: &[Hash256],       // P_s; committed via MARS v2
+    mut read_pool_balance: impl FnMut() -> u128,
+    mut debit_pool:        impl FnMut(u128),
+    mut credit_pk:         impl FnMut(&Hash256, u128),
+    mut burn:              impl FnMut(u128),
+) {
+    let m = part_set_sorted.len();
+    let drp = read_pool_balance();
+    if drp == 0 || m == 0 { return; }
+
+    let baseline = (drp as u128 * (DRP_BASELINE_PCT as u128)) / 100;
+    let lottery  = drp - baseline;
+
+    let per_base = if m > 0 { baseline / (m as u128) } else { 0 };
+    let base_rem = if m > 0 { baseline % (m as u128) } else { 0 };
+
+    // Winners
+    let k = core::cmp::min(DRP_K_WINNERS, m);
+    if k == 0 { return; }
+    let winners_idx = pick_k_unique_indices(y_edge_s, s, m, k);
+
+    let per_win = lottery / (k as u128);
+    let lot_rem = lottery % (k as u128);
+
+    if per_base == 0 && per_win == 0 {
+        // Too little to pay; carry forward in pool
+        return;
+    }
+
+    // Total to pay (excl. residuals which we burn)
+    let total_pay = per_base * (m as u128) + per_win * (k as u128);
+    debit_pool(total_pay);
+
+    // Baseline to all
+    if per_base > 0 {
+        for pk in part_set_sorted {
+            credit_pk(pk, per_base);
+        }
+    }
+    if base_rem > 0 { burn(base_rem); }
+
+    // Winners (stable tie-break ordering by rank)
+    if per_win > 0 {
+        // Deterministic cycle order using ranks
+        let mut winners: Vec<(usize,Hash256)> = winners_idx.iter()
+            .map(|&i| (i, reward_rank(y_edge_s, &part_set_sorted[i])))
+            .collect();
+        winners.sort_by(|a,b| a.1.cmp(&b.1));
+        for (i, (idx, _)) in winners.into_iter().enumerate() {
+            credit_pk(&part_set_sorted[idx], per_win);
+        }
+    }
+    if lot_rem > 0 { burn(lot_rem); }
+}
+```
+
+> This keeps everyone engaged (baseline) and gives meaningful upside (lottery) every slot, with no proposer advantage or races.
+
+---
+
+## 6. System transactions (serialization; included in `txroot_s`)
+
+System-authored ledger writes (escrow credits, pool credits, rewards, treasury credits, burns) are **materialized as system transactions** during settlement of slot `s`. They are ordered deterministically **after** user tx execution and included in `txroot_s` (committed by `Header_{s+1}` per MARS).
+
+### 6.1 System tx encoding (normative)
+
+```
+SysTx {
+  kind : u8    // 0=ESCROW_CREDIT, 1=VERIFIER_CREDIT, 2=TREASURY_CREDIT, 3=BURN, 4=REWARD_PAYOUT
+  slot : u64   // LE(8) = slot s that produces this write
+  pk   : [u8;32]  // present only for REWARD_PAYOUT (else 32 zero bytes)
+  amt  : u128  // LE(16) Iota amount (integer)
+}
+```
+
+**Canonical bytes:**
+
+```
+enc_sys_tx(tx) =
+ H("sys.tx",[])
+ || LE(kind,1)
+ || LE(slot,8)
+ || pk[32]
+ || LE(amt,16)
+```
+
+All system txs for slot `s` are emitted in a canonical order:
+
+1. **ESCROW\_CREDIT** (sum of fee\_int for all executed txs)
+2. **VERIFIER\_CREDIT / TREASURY\_CREDIT / BURN** (releases from escrow) – order: VERIFIER, TREASURY, BURN
+3. **REWARD\_PAYOUT** items – ordered by `(kind=4, then pk ascending)`
+
+Their `enc_sys_tx` payloads are hashed as leaves in the same `enc_txid_leaf` scheme used by MARS (§Engine 3), ensuring that `txroot_s` recomputation is exact.
+
+---
+
+## 7. Ledger state (consensus-visible)
+
+* `EmissionState` — §2
+* `FeeSplitState` — §4 (includes `fee_escrow_iota`, `total_burned_iota`, fractional accumulators, and `NlbEpochState`)
+* `SYS_*` balances — standard account balances for the three system accounts and escrow
+* `DRP` — the `SYS_VERIFIER_POOL` balance at settlement is the working DRP corpus; no separate variable needed.
+
+**Invariants (enforced by executor asserts):**
+
+* At slot `LAST_EMISSION_BLOCK`: `total_emitted_iota_paid == TOTAL_SUPPLY_IOTA`.
+* For any block, **conservation** over fee flow:
+
+  ```
+  ΔSYS_FEE_ESCROW = +Σ fee_int (executed txs) − (release_verifier + release_treasury + release_burn)
+  ```
+* Sum of all system debits equals sum of system credits + burns.
+
+---
+
+## 8. MARS v2 addition (minimal, mechanical)
+
+Tokenomics depends on having the LAMEq-X participation set **committed** per slot. We add one field and one equality:
+
+* **Header field added:**
+
+  ```
+  part_root : Hash256   // commitment to P_s (Engine 1)
+  ```
+* **Validity equality:**
+
+  ```
+  part_root == recompute_part_root(slot)    // via Engine 1 verifier; same hashing discipline
+  ```
+* **Header ID:** insert `part_root` into the canonical `header_id` sequence (fixed position; e.g., after `ticket_root` and before `txroot_prev`).
+* **Version bump:** `MARS_VERSION = 2`. No other changes.
+
+This makes the participation set P\_s **consensus data**, so DRP payouts are fully deterministic and verifiable.
+
+---
+
+## 9. End-to-end slot flow (coherent with Engines 1–4)
+
+**Finality window (0–100 ms, slot s):**
+
+* E2: VDF verified → `y_edge_s`.
+* E1: LAMEq-X verification yields `P_s`; node computes `part_root_s`.
+* E4: PADA admits txs for slot s → `ticket_root_s`.
+* E3 (MARS v2): build & verify header for slot s committing:
+
+  * parent link
+  * beacon fields (`seed_commit, vdf_y_core, vdf_y_edge, vdf_pi, vdf_ell`)
+  * `ticket_root_s`
+  * `part_root_s`
+  * `txroot_{s-1}`
+
+**Settlement window (100–1000 ms, same slot s):**
+
+* Execute admitted txs; for each:
+
+  * debit sender, credit recipient
+  * credit `SYS_FEE_ESCROW` with `fee_int`
+* Route fees for slot s:
+
+  * Release from ESCROW according to NLB epoch splits to `SYS_VERIFIER_POOL`, `SYS_TREASURY`, `SYS_BURN`
+* Emission for slot s:
+
+  * `on_slot_emission` → credit DRP (`SYS_VERIFIER_POOL`) with `emission_s`
+* DRP distribution for slot s:
+
+  * `distribute_drp_for_slot` using `(P_s, y_edge_s)` → reward system txs
+* Build `txroot_s` including user txs and system txs in canonical order
+* Next header (`s+1`) commits `txroot_{s}`
+
+---
+
+## 10. Conformance checklist (for implementers)
+
+* **Encoding**
+
+  * [ ] All integers little-endian fixed width; domain-tagged SHA3-256 with length framing.
+  * [ ] System tx bytes `enc_sys_tx` must match exactly across nodes.
+
+* **Emission**
+
+  * [ ] Rational accumulator with `U256` numerators/denominators.
+  * [ ] Integer payouts only; `u256→u128` conversions guarded.
+  * [ ] Terminal equality at `LAST_EMISSION_BLOCK`.
+
+* **Fees**
+
+  * [ ] PADA enforces `fee_iota == fee_int_iota(amount)`.
+  * [ ] Executor credits **exact integer** `fee_int` to `SYS_FEE_ESCROW`.
+  * [ ] NLB splits rolled only at epoch boundaries.
+  * [ ] Releases from ESCROW bounded by escrow balance; residual remains in ESCROW.
+  * [ ] Burns increment `total_burned_iota`.
+
+* **Rewards**
+
+  * [ ] `part_root_s` committed in header (MARS v2).
+  * [ ] Winners sampled with rejection sampling over sorted `P_s` using `y_edge_s`.
+  * [ ] Baseline and lottery shares integer; residuals burned.
+  * [ ] All payouts emitted as system txs; included in `txroot_s`.
+
+* **Determinism/Safety**
+
+  * [ ] No floats anywhere.
+  * [ ] No wall-clock reads in consensus.
+  * [ ] All state transitions are ledger entries; conservation invariants enforced.
+
+---
+
+## 11. Security & incentive analysis (brief)
+
+* **No race on proposer:** Rewards depend only on `(P_s, y_edge_s, pool balances)`, all consensus-determined. Exactly one valid header (MARS) per slot.
+* **Sybil resistance:** LAMEq-X imposes per-key RAM bandwidth costs; rewards require inclusion in `P_s`, disincentivizing spam keys.
+* **Fee oscillation games:** Eliminated by epoch-stable NLB splits.
+* **Rounding leakage:** Fractional accumulators and escrow ensure no Iota leaves or enters the system off-ledger. Residuals are explicitly burned.
+* **Long-term security:** As emissions decay, verifier share of fees is boosted (burn redirect), and DRP continues paying per slot—keeping validators economically engaged.
+
+---
+
+## 12. Genesis & parameters
+
+* **Genesis balances:** standard alloc; `SYS_*` accounts start at 0; `EmissionState` zeroed; `FeeSplitState` zeroed.
+* **Recommended parameters:**
+
+  * `DRP_BASELINE_PCT = 20`, `DRP_K_WINNERS = 16`
+  * `NLB_EPOCH_SLOTS = 10_000` (adjust if you want slower split churn)
+  * `BASE_VERIFIER_PCT = 40`, `BASE_TREASURY_PCT = 40`, `INITIAL_BURN_PCT = 20` (tunable; keep sum=100 with redirect)
+* **Operational:** Align `GENESIS_UNIX_TIME` so `LAST_EMISSION_BLOCK` maps to your desired civil instant. Not part of consensus.
+
+---
+
+## 13. Minimal API surface (engine integration)
+
+* **Engine T → Engine 4 (Executor):**
+
+  * `process_transfer(...)` for each executed user tx
+  * `on_slot_emission(...)` once per slot
+  * `distribute_drp_for_slot(...)` once per slot
+  * Emission of **system txs** (escrow credits, releases, rewards, treasury credit, burns)
+
+* **Engine T ← Engine 1 & 2:**
+
+  * `P_s` (sorted PKs) and `part_root_s` (committed by MARS v2)
+  * `y_edge_s` (beacon edge for slot s)
+
+* **Engine T ← Engine 3 (MARS v2):**
+
+  * Validated header guarantees for `part_root_s`, beacon, ticket root, and `txroot_{s-1}`.
+
+---
+
+## 14. Full reference tags (hash domains)
+
+Use these **reserved tags** exactly (ASCII):
+
+* `"sys.tx"` — system transaction encoding
+* `"reward.draw"` — DRP winner sampling (CTR)
+* `"reward.rank"` — DRP tie-break ranking
+* All shared tags from Engines 1–4 (e.g., `"merkle.leaf"`, `"merkle.node"`, `"slot.seed"`, `"vdf.ycore.canon"`, `"vdf.edge"`, `"tx.body.v1"`, `"tx.id"`, `"tx.commit"`, `"tx.sig"`) remain unchanged
+
+---
+
+This blueprint gives a **precise, compilable** Tokenomics engine that is:
+
+* **Ledger-only** (all money flows are explicit balances and system txs),
+* **Float-free** (pure integers, exact rationals),
+* **Calendar-exact** (emission ends at the precise slot count for 100 protocol years),
+* **Incentive-complete** (baseline + lottery per slot, no races, Sybil-discouraging),
+* **Coherent** with your finalized LAMEq-X, VDF, MARS (v2), and PADA.

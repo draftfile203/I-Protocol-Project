@@ -1,0 +1,613 @@
+Below is the **perfected blueprint** for **Engine 3 — MARS (Mathematical Absolute Resolution System)**. It is **byte-precise**, **production-grade**, and **coherent** with Engines **LAMEq-X (E1)**, **VDF (E2)**, and **PADA (E4)**. All tags, field orders, lengths, and equality checks are **normative**. Independent implementations must agree **bit-for-bit**.
+
+---
+
+# Engine 3 — MARS (Mathematical Absolute Resolution System)
+
+**Production blueprint (byte-precise, Rust-ready pseudocode).**
+**Pipeline alignment:**
+
+* Finality window (**0–100 ms** of slot *s*): validate VDF beacon equalities for *(parent\_id, s)*; deterministically compute `ticket_root_s` (from admissions in E4) and `txroot_{s-1}` (from executions of the previous slot); build `Header_s`; validate candidate headers strictly by **equalities**.
+* Settlement window (**100–1000 ms** of slot *s*): the executor deterministically produces `txroot_s` to be committed by `Header_{s+1}`.
+
+MARS itself does **not** execute the VDF, admission, or execution; it binds to their deterministic results via canonical commitments and accepts a header **iff** all normative equalities hold.
+
+---
+
+## 1. Role and Forklessness (at most one valid header per slot)
+
+For fixed `(parent, slot)`, MARS enforces:
+
+1. **Parent linkage**: correct predecessor and monotonic slot.
+2. **VDF beacon equalities** (E2): `seed_commit`, `vdf_y_core`, `vdf_y_edge`, and size caps of `vdf_pi`/`vdf_ell`.
+3. **Admission commitment** (E4): `ticket_root_s` recomputed deterministically from the canonical TicketRecord set for slot *s*.
+4. **Execution commitment (lag-1)** (E4): `txroot_{s-1}` recomputed deterministically from the previous slot execution outputs.
+5. **Consensus version**.
+
+All RHS values are **unique deterministic functions** of `(parent, s)` and local state. Therefore, **at most one** header can satisfy all equalities ⇒ **forklessness**.
+
+---
+
+## 2. Inter-Engine Coherence
+
+* **VDF (E2)**: `seed_s = H("slot.seed", [parent_id, LE(s,8)])`. The beacon fields `(seed_commit, vdf_y_core, vdf_y_edge, vdf_pi, vdf_ell)` are embedded in the header. MARS validates them via the E2 adapter `verify_beacon`.
+* **LAMEq-X (E1)**: consumes **parent** beacon edge: `y_{s-1} = parent.vdf_y_edge`. LAMEq-X is not required for header validity; it can expose `P_s/part_root_s` to higher layers.
+* **PADA (E4)**: admission in slot *s* emits canonical TicketRecords; `ticket_root_s` is Merklized deterministically and committed in `Header_s`; execution in slot *s* yields `txroot_s` which is committed in `Header_{s+1}`.
+
+---
+
+## 3. Canonical Hashing, Encodings, and Merkle (normative)
+
+* **Integer encoding:** little-endian fixed width only. `LE(x, W)` → exactly *W* bytes. No overlong encodings.
+
+* **Hash type:** `Hash256 = [u8; 32]`.
+
+* **Domain-tagged SHA3-256 with length framing:**
+
+  ```
+  H(tag_ascii, parts[]) =
+      SHA3_256( UTF8(tag_ascii)
+                || Σ ( LE(|p|,8) || p ) )
+  ```
+
+* **Binary Merkle tree** (duplicate last when odd):
+
+  * Leaf: `H("merkle.leaf", payload)`
+  * Node: `H("merkle.node", L || R)`
+  * Empty: `H("merkle.empty", [])`
+
+* **Canonical leaf payloads (normative, used by MARS):**
+
+  ```
+  enc_ticket_leaf(t) =
+      H("ticket.leaf",[])
+      || t.ticket_id       // 32
+      || t.txid            // 32
+      || t.sender          // 32 (PK)
+      || LE(t.nonce,8)
+      || LE(t.amount_iota,16)
+      || LE(t.fee_iota,16)
+      || LE(t.s_admit,8)
+      || LE(t.s_exec,8)
+      || t.commit_hash     // 32
+
+  enc_txid_leaf(txid) =
+      H("txid.leaf",[]) || txid   // 32 + 32
+  ```
+
+* **Sorting rule:** lexicographic ascending order (raw bytes) before Merklization for both ticket sets and executed txid sets.
+
+**Normative tags used in MARS:**
+
+```
+"header.id"   "merkle.leaf"   "merkle.node"   "merkle.empty"
+"ticket.leaf" "txid.leaf"
+```
+
+---
+
+## 4. Consensus Constants (MARS-only)
+
+```
+MARS_VERSION = 1
+```
+
+The version changes **only** via a consensus upgrade that may also bump VDF, PADA, or other cross-engine constants.
+
+---
+
+## 5. Header Object, Serialization, ID, and Validity Equalities
+
+### 5.1 Header fields (fixed order; canonical object)
+
+```
+Header {
+  parent_id         : Hash256         // == header_id(parent)
+  slot              : u64             // strictly == parent.slot + 1
+  consensus_version : u32
+
+  // Beacon commitments (E2)
+  seed_commit       : Hash256         // == H("slot.seed", [parent_id, LE(slot,8)])
+  vdf_y_core        : Hash256         // == H("vdf.ycore.canon", [Y_raw])
+  vdf_y_edge        : Hash256         // == H("vdf.edge", [vdf_y_core])
+  vdf_pi            : Bytes           // opaque proof bytes; length-prefixed in serialization
+  vdf_ell           : Bytes           // opaque aux bytes; length-prefixed in serialization
+
+  // Deterministic commitments (E4)
+  ticket_root       : Hash256         // Merkle root of admitted TicketRecords in slot s
+  txroot_prev       : Hash256         // Merkle root of executed txids for slot s-1
+}
+```
+
+### 5.2 Header serialization (normative layout for network transport)
+
+```
+serialize_header(h):
+  bytes = []
+  bytes += h.parent_id                        // 32
+  bytes += LE(h.slot,8)                       // 8
+  bytes += LE(h.consensus_version,4)          // 4
+
+  bytes += h.seed_commit                      // 32
+  bytes += h.vdf_y_core                       // 32
+  bytes += h.vdf_y_edge                       // 32
+  bytes += LE(|h.vdf_pi|,4)  || h.vdf_pi[..]  // 4 + |pi|
+  bytes += LE(|h.vdf_ell|,4) || h.vdf_ell[..] // 4 + |ell|
+
+  bytes += h.ticket_root                      // 32
+  bytes += h.txroot_prev                      // 32
+```
+
+### 5.3 Header ID (immutable, canonical)
+
+```
+header_id = H("header.id", [
+  h.parent_id,
+  LE(h.slot,8),
+  LE(h.consensus_version,4),
+
+  h.seed_commit, h.vdf_y_core, h.vdf_y_edge,
+  LE(|h.vdf_pi|,4),  h.vdf_pi,
+  LE(|h.vdf_ell|,4), h.vdf_ell,
+
+  h.ticket_root,
+  h.txroot_prev
+])
+```
+
+The header ID is independent of the external serialization. Any node recomputes `header_id` from the **field values** as above.
+
+### 5.4 Validity equalities (all must hold)
+
+1. **Parent link & slot progression**
+
+   * `h.parent_id == header_id(parent)`
+   * `h.slot == parent.slot + 1`
+
+2. **VDF beacon equalities and size caps (via E2 adapter)**
+
+   * `seed_commit == H("slot.seed", [parent_id, LE(slot,8)])`
+   * `verify_beacon(parent_id, slot, seed_commit, vdf_y_core, vdf_y_edge, vdf_pi, vdf_ell)` **succeeds**
+   * `|vdf_pi| ≤ MAX_PI_LEN` and `|vdf_ell| ≤ MAX_ELL_LEN` (the adapter enforces)
+
+3. **Admission equality (slot s, via E4 provider)**
+
+   * `h.ticket_root == compute_ticket_root(slot)`
+
+4. **Execution equality (slot s−1, via E4 provider)**
+
+   * `h.txroot_prev == compute_txroot(slot−1)`
+   * For `slot == GENESIS_SLOT`: `h.txroot_prev == TXROOT_GENESIS` (constant)
+
+5. **Version equality**
+
+   * `h.consensus_version == MARS_VERSION` (or the configured expected version under upgrade).
+
+Any failure ⇒ **header invalid**.
+
+---
+
+## 6. Rust-Ready Module (byte-precise pseudocode)
+
+> Replace `sha3_256` with a real SHA3-256 implementation. All encodings and field orders are **normative**. Size caps for VDF proof bytes are enforced in the adapter.
+
+```rust
+// ============================ mars.rs ==============================
+// Engine 3: MARS — deterministic header build & validation
+// Byte-precise, consensus-critical, coherent with VDF (E2) and PADA (E4).
+// ===================================================================
+
+#![allow(unused)]
+use alloc::vec::Vec;
+
+// ——— Types ————————————————————————————————————————————————————————
+pub type Hash256 = [u8; 32];
+
+// ——— Integer encodings ————————————————————————————————————————————
+#[inline]
+pub fn le_bytes<const W: usize>(mut x: u128) -> [u8; W] {
+    let mut out = [0u8; W];
+    for i in 0..W { out[i] = (x & 0xFF) as u8; x >>= 8; }
+    out
+}
+
+// ——— Hashing (domain-tagged, length-framed) ————————————————————
+pub fn sha3_256(_input: &[u8]) -> Hash256 { unimplemented!() }
+
+#[inline]
+pub fn h_tag(tag: &str, parts: &[&[u8]]) -> Hash256 {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(tag.as_bytes());
+    for p in parts {
+        let len = le_bytes::<8>(p.len() as u128);
+        buf.extend_from_slice(&len);
+        buf.extend_from_slice(p);
+    }
+    sha3_256(&buf)
+}
+
+// ——— Merkle (binary; duplicate last when odd) ————————————————
+#[inline] pub fn merkle_leaf(payload: &[u8]) -> Hash256 { h_tag("merkle.leaf", &[payload]) }
+
+#[inline]
+pub fn merkle_node(l: &Hash256, r: &Hash256) -> Hash256 {
+    let mut cat = [0u8; 64];
+    cat[..32].copy_from_slice(l);
+    cat[32..].copy_from_slice(r);
+    h_tag("merkle.node", &[&cat])
+}
+
+pub fn merkle_root(leaves_payload: &[Vec<u8>]) -> Hash256 {
+    if leaves_payload.is_empty() { return h_tag("merkle.empty", &[]); }
+    let mut lvl: Vec<Hash256> = leaves_payload.iter().map(|p| merkle_leaf(p)).collect();
+    while lvl.len() > 1 {
+        if lvl.len() % 2 == 1 { lvl.push(*lvl.last().unwrap()); }
+        let mut nxt = Vec::with_capacity(lvl.len()/2);
+        for i in (0..lvl.len()).step_by(2) { nxt.push(merkle_node(&lvl[i], &lvl[i+1])); }
+        lvl = nxt;
+    }
+    lvl[0]
+}
+
+// ——— Canonical leaf encodings (normative) ————————————————
+#[derive(Clone)]
+pub struct TicketLeaf {
+    pub ticket_id:   Hash256,
+    pub txid:        Hash256,
+    pub sender:      [u8; 32], // PK
+    pub nonce:       u64,
+    pub amount_iota: u128,
+    pub fee_iota:    u128,
+    pub s_admit:     u64,
+    pub s_exec:      u64,
+    pub commit_hash: Hash256,
+}
+pub fn enc_ticket_leaf(t: &TicketLeaf) -> Vec<u8> {
+    let mut out = Vec::with_capacity(32+32+32 + 8 + 16 + 16 + 8 + 8 + 32 + 16);
+    out.extend_from_slice(&h_tag("ticket.leaf", &[]));
+    out.extend_from_slice(&t.ticket_id);
+    out.extend_from_slice(&t.txid);
+    out.extend_from_slice(&t.sender);
+    out.extend_from_slice(&le_bytes::<8>(t.nonce as u128));
+    out.extend_from_slice(&le_bytes::<16>(t.amount_iota));
+    out.extend_from_slice(&le_bytes::<16>(t.fee_iota));
+    out.extend_from_slice(&le_bytes::<8>(t.s_admit as u128));
+    out.extend_from_slice(&le_bytes::<8>(t.s_exec as u128));
+    out.extend_from_slice(&t.commit_hash);
+    out
+}
+
+#[inline]
+pub fn enc_txid_leaf(txid: &Hash256) -> Vec<u8> {
+    let mut out = Vec::with_capacity(32 + 32);
+    out.extend_from_slice(&h_tag("txid.leaf", &[]));
+    out.extend_from_slice(txid);
+    out
+}
+
+// ——— VDF adapter (Engine 2) ————————————————————————————————
+pub trait BeaconVerifier {
+    /// Enforces all VDF equalities + size caps for (parent_id, slot).
+    /// Returns true iff:
+    ///   seed_commit == H("slot.seed", [parent_id, LE(slot,8)]) &&
+    ///   backend proof verifies (reconstructs canonical Y_raw) &&
+    ///   vdf_y_core == H("vdf.ycore.canon", [Y_raw]) &&
+    ///   vdf_y_edge == H("vdf.edge", [vdf_y_core]) &&
+    ///   |vdf_pi| ≤ MAX_PI_LEN, |vdf_ell| ≤ MAX_ELL_LEN
+    fn verify_beacon(
+        &self,
+        parent_id: &Hash256,
+        slot: u64,
+        seed_commit: &Hash256,
+        vdf_y_core:  &Hash256,
+        vdf_y_edge:  &Hash256,
+        vdf_pi:      &[u8],
+        vdf_ell:     &[u8],
+    ) -> bool;
+}
+
+// ——— Root providers (Engine 4) ——————————————————————————————
+pub trait TicketRootProvider {
+    /// Deterministically compute the ticket_root for slot `slot` using:
+    ///   1) build the set of TicketRecord for slot `slot`
+    ///   2) sort by ascending txid (raw bytes)
+    ///   3) leaf payload = enc_ticket_leaf()
+    ///   4) return Merkle root
+    fn compute_ticket_root(&self, slot: u64) -> Hash256;
+}
+pub trait TxRootProvider {
+    /// Deterministically compute the txroot for slot `slot` over executed txids:
+    ///   1) build the txid set for slot `slot`
+    ///   2) sort ascending (raw bytes)
+    ///   3) leaf payload = enc_txid_leaf(txid)
+    ///   4) return Merkle root
+    fn compute_txroot(&self, slot: u64) -> Hash256;
+}
+
+// ——— MARS constants ————————————————————————————————————————
+pub const MARS_VERSION: u32 = 1;
+
+// ——— Header struct & canonical ID ————————————————————————————
+#[derive(Clone)]
+pub struct Header {
+    pub parent_id:         Hash256,
+    pub slot:              u64,
+    pub consensus_version: u32,
+
+    // VDF (E2)
+    pub seed_commit:       Hash256,
+    pub vdf_y_core:        Hash256,
+    pub vdf_y_edge:        Hash256,
+    pub vdf_pi:            Vec<u8>,  // len-prefixed when serialized
+    pub vdf_ell:           Vec<u8>,  // len-prefixed when serialized
+
+    // PADA (E4)
+    pub ticket_root:       Hash256,  // slot s
+    pub txroot_prev:       Hash256,  // slot s-1
+}
+
+pub fn header_id(h: &Header) -> Hash256 {
+    h_tag("header.id", &[
+        &h.parent_id,
+        &le_bytes::<8>(h.slot as u128),
+        &le_bytes::<4>(h.consensus_version as u128),
+
+        &h.seed_commit,
+        &h.vdf_y_core,
+        &h.vdf_y_edge,
+        &le_bytes::<4>(h.vdf_pi.len() as u128),  &h.vdf_pi,
+        &le_bytes::<4>(h.vdf_ell.len() as u128), &h.vdf_ell,
+
+        &h.ticket_root,
+        &h.txroot_prev,
+    ])
+}
+
+// ——— Build & Validate ————————————————————————————————————————
+pub enum BuildErr { /* reserved for future: provider failures, etc. */ }
+
+pub enum ValidateErr {
+    BadParentLink,
+    BadSlotProgression,
+    BeaconInvalid,
+    TicketRootMismatch,
+    TxRootPrevMismatch,
+    VersionMismatch,
+}
+
+/// Build Header_s given parent header, beacon fields, and deterministic providers.
+pub fn mars_build_header(
+    parent: &Header,
+    beacon_fields: (Hash256, Hash256, Hash256, Vec<u8>, Vec<u8>), // (seed_commit, y_core, y_edge, pi, ell)
+    ticket_roots: &impl TicketRootProvider,
+    tx_roots: &impl TxRootProvider,
+    consensus_version: u32,
+) -> Result<Header, BuildErr> {
+    let s = parent.slot + 1;
+    let (seed_commit, y_core, y_edge, pi, ell) = beacon_fields;
+
+    let ticket_root = ticket_roots.compute_ticket_root(s);
+    let txroot_prev = tx_roots.compute_txroot(parent.slot);
+
+    Ok(Header {
+        parent_id: header_id(parent),
+        slot: s,
+        consensus_version,
+        seed_commit,
+        vdf_y_core: y_core,
+        vdf_y_edge: y_edge,
+        vdf_pi: pi,
+        vdf_ell: ell,
+        ticket_root,
+        txroot_prev,
+    })
+}
+
+/// Validate Header_s strictly by equalities.
+pub fn mars_validate_header(
+    h: &Header,
+    parent: &Header,
+    beacon: &impl BeaconVerifier,
+    ticket_roots: &impl TicketRootProvider,
+    tx_roots: &impl TxRootProvider,
+    expected_consensus_version: u32,
+) -> Result<(), ValidateErr> {
+    // 1) Parent linkage and slot progression
+    if h.parent_id != header_id(parent) { return Err(ValidateErr::BadParentLink); }
+    if h.slot != parent.slot + 1 { return Err(ValidateErr::BadSlotProgression); }
+
+    // 2) VDF equalities (Engine 2)
+    if !beacon.verify_beacon(
+        &h.parent_id, h.slot,
+        &h.seed_commit, &h.vdf_y_core, &h.vdf_y_edge,
+        &h.vdf_pi, &h.vdf_ell,
+    ) { return Err(ValidateErr::BeaconInvalid); }
+
+    // 3) Admission equality (slot s)
+    let ticket_root_local = ticket_roots.compute_ticket_root(h.slot);
+    if h.ticket_root != ticket_root_local { return Err(ValidateErr::TicketRootMismatch); }
+
+    // 4) Execution equality (slot s-1)
+    let txroot_prev_local = tx_roots.compute_txroot(parent.slot);
+    if h.txroot_prev != txroot_prev_local { return Err(ValidateErr::TxRootPrevMismatch); }
+
+    // 5) Version equality
+    if h.consensus_version != expected_consensus_version { return Err(ValidateErr::VersionMismatch); }
+
+    Ok(())
+}
+```
+
+---
+
+## 7. Pipeline Integration (exact order of operations)
+
+**Start of slot s (0–100 ms):**
+
+1. **Beacon (E2)**: producers compute `(Y_raw, π, ℓ)` for `seed_s = H("slot.seed",[parent_id, LE(s,8)])`; build `(seed_commit, vdf_y_core, vdf_y_edge, vdf_pi, vdf_ell)`; validators call `verify_beacon`.
+2. **Admission set (E4)**: using finalized admissions for *s*, deterministically compute `ticket_root_s` via `enc_ticket_leaf` leaves sorted by ascending `txid`.
+3. **Execution lag−1 (E4)**: deterministically compute `txroot_{s-1}` via `enc_txid_leaf` leaves sorted by ascending `txid`.
+4. **MARS**: build `Header_s` with the exact fields and run `mars_validate_header` locally prior to gossip/commit.
+5. **Consensus**: due to strict equalities, at most one header can be valid for slot *s*.
+
+**Settlement window (100–1000 ms of slot s):**
+
+* Deterministic executor runs transactions scheduled for `s` (per E4) and produces `txroot_s` to be committed by `Header_{s+1}`.
+
+---
+
+## 8. Genesis and Edge Cases
+
+* **Genesis header** for slot `S0`:
+
+  * `parent_id = GENESIS_PARENT_ID` (constant)
+  * `slot = S0`
+  * `seed_commit = H("slot.seed", [GENESIS_PARENT_ID, LE(S0,8)])`
+  * `txroot_prev = TXROOT_GENESIS` (constant)
+  * `ticket_root = MerkleRoot([])` if no admissions (`H("merkle.empty",[])`)
+  * VDF beacon fields produced by E2 for `(seed_commit, VDF_DELAY_T)`.
+
+* **Empty sets**: If no tickets or executed txids exist for a slot, providers return `merkle_root([]) == H("merkle.empty",[])`.
+
+* **Deserialization**: when receiving a serialized Header, validate field lengths and order exactly as §5.2; length prefixes for `vdf_pi` and `vdf_ell` are 4-byte LE; reject truncations or overlong encodings.
+
+---
+
+## 9. DoS Hardening and Determinism
+
+* **Proof size caps** (`MAX_PI_LEN`, `MAX_ELL_LEN`) are enforced in the VDF adapter and must cause immediate rejection if exceeded.
+* Only `vdf_pi` and `vdf_ell` are variable-length; all other fields are fixed-width.
+* All hashing uses domain separation with length framing; no ambiguity or concatenation collisions.
+* Sorting order is byte-lexicographic and deterministic.
+* Equality checks use constant-time comparisons for 32-byte hashes.
+
+---
+
+## 10. Formal Forklessness Sketch
+
+Fix `parent` and `s`. Define deterministic functions:
+
+* `seed_s = H("slot.seed",[parent_id, LE(s,8)])` (unique).
+* `Beacon_s = VerifyBeacon(seed_s)` (unique `(y_core, y_edge)` and size-bounded `(pi, ell)`, or reject).
+* `ticket_root_s = Merkle(enc_ticket_leaf(t) for t ∈ Tickets(s), sorted by txid)` (unique).
+* `txroot_{s-1} = Merkle(enc_txid_leaf(id) for id ∈ Executed(s-1), sorted)` (unique).
+
+Then
+
+```
+Header_s = (
+  parent_id=header_id(parent), slot=s, consensus_version,
+  seed_commit=seed_s, vdf_y_core, vdf_y_edge, vdf_pi, vdf_ell,
+  ticket_root=ticket_root_s, txroot_prev=txroot_{s-1}
+)
+```
+
+is the **only** header that can satisfy the validity equalities. Any other candidate must differ in at least one field and is rejected.
+
+---
+
+## 11. Implementation Guidance
+
+* **Hashing**: Use a vetted SHA3-256 implementation. Keep tag strings **ASCII exact**. Buffer layout must match the length-framing rule verbatim.
+* **Equality checks**: Compare 32-byte hashes in constant time.
+* **Providers**: `TicketRootProvider` and `TxRootProvider` must be **pure** functions of current node state and slot index; no nondeterminism or clock reliance.
+* **Serialization**: Implement `serialize_header` exactly as §5.2 if you encode on the wire; deserializers must reject any deviation.
+* **Replay resistance**: Parent linkage and slot equality prevent slot-shift replay of beacons.
+* **Upgrade mechanics**: On coordinated network upgrades, bump `MARS_VERSION` (and possibly `VDF_VERSION`) atomically.
+
+---
+
+## 12. Conformance Checklist (engineer-facing)
+
+* [ ] All integers are **LE fixed-width** (`u32`, `u64` only as specified).
+* [ ] Tags: `"header.id"`, `"merkle.leaf"`, `"merkle.node"`, `"merkle.empty"`, `"ticket.leaf"`, `"txid.leaf"` used exactly.
+* [ ] `enc_ticket_leaf` and `enc_txid_leaf` implemented exactly; sorting by **ascending raw bytes** of `txid`.
+* [ ] `serialize_header` uses exact field order and 4-byte LE length prefixes for `vdf_pi`/`vdf_ell`.
+* [ ] `header_id` computed over **field values** as in §5.3 (not over serialized bytes).
+* [ ] Parent linkage: `h.parent_id == header_id(parent)`; slot strictly increments by 1.
+* [ ] VDF adapter enforces all beacon equalities and size caps.
+* [ ] Admission equality and Execution equality recomputed locally and compared.
+* [ ] Version equality enforced (`MARS_VERSION`).
+* [ ] Constant-time 32-byte hash comparisons.
+
+---
+
+## 13. Test Vectors (ship with implementation)
+
+Provide deterministic vectors (hex for every field and final `header_id`):
+
+1. **Nominal header**
+
+   * Given: `parent` header (full fields), `slot = parent.slot + 1`, fixed VDF backend outputs, concrete TicketRecord set for *s* and executed txids for *s−1*.
+   * Output: fully populated `Header_s`, `serialize_header(h)`, `header_id(h)`.
+
+2. **Parent link failure**
+
+   * Change 1 bit in `parent_id` ⇒ `BadParentLink`.
+
+3. **Slot progression failure**
+
+   * Set `h.slot != parent.slot + 1` ⇒ `BadSlotProgression`.
+
+4. **Beacon mismatch**
+
+   * Corrupt 1 byte in `vdf_y_core` ⇒ `BeaconInvalid` (or `CoreMismatch` in E2 adapter).
+
+5. **Ticket root mismatch**
+
+   * Modify admission set ordering or a leaf ⇒ `TicketRootMismatch`.
+
+6. **Txroot lag-1 mismatch**
+
+   * Modify previous slot execution set ⇒ `TxRootPrevMismatch`.
+
+7. **Version mismatch**
+
+   * Set `h.consensus_version != expected` ⇒ `VersionMismatch`.
+
+8. **Empty sets**
+
+   * With no tickets or txs, ensure `ticket_root == txroot == H("merkle.empty",[])`.
+
+---
+
+## 14. Public API Summary
+
+* **Build header (producer path):**
+
+  ```rust
+  mars_build_header(
+      parent: &Header,
+      beacon_fields: (Hash256, Hash256, Hash256, Vec<u8>, Vec<u8>),
+      ticket_roots: &impl TicketRootProvider,
+      tx_roots: &impl TxRootProvider,
+      consensus_version: u32,
+  ) -> Result<Header, BuildErr>
+  ```
+
+* **Validate header (validator path):**
+
+  ```rust
+  mars_validate_header(
+      h: &Header,
+      parent: &Header,
+      beacon: &impl BeaconVerifier,
+      ticket_roots: &impl TicketRootProvider,
+      tx_roots: &impl TxRootProvider,
+      expected_consensus_version: u32,
+  ) -> Result<(), ValidateErr>
+  ```
+
+These two functions, together with the normative hashing/encoding rules here and the VDF/PADA adapters, are sufficient for full consensus integration.
+
+---
+
+## 15. Summary
+
+This MARS blueprint is **byte-precise** and **forkless by construction**. It binds headers to unique deterministic results from VDF, Admission, and Execution, with strict size-bounded proofs and canonical encodings. It is fully coherent with:
+
+* **E2 (VDF)**: seed derivation and beacon equalities, including size caps and canonical `y_core`/`y_edge`.
+* **E4 (PADA)**: ticket leaf format, sorting, and `ticket_root_s`; lag-1 execution commitment `txroot_{s-1}`.
+* **E1 (LAMEq-X)**: independent of header validity but consistently consumes `parent.vdf_y_edge` as `y_{s-1}`.
+
+Implementations following this document will agree **bit-for-bit** on header validity and identity for every slot.

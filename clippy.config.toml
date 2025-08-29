@@ -1,0 +1,11 @@
+cognitive-complexity-threshold = 15
+type-complexity-threshold = 100
+too-many-arguments-threshold = 5
+too-many-lines-threshold = 100
+enum-variant-name-threshold = 3
+vec-box-size-threshold = 4096
+enum-variant-size-threshold = 200
+verbose-bit-mask-threshold = 1
+avoid-breaking-exported-api = true
+check-private-items = true
+suppress-restriction-lint-in-const = false

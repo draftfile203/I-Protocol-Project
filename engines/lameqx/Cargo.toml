@@ -1,0 +1,34 @@
+[package]
+name = "iprotocol-lameqx"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Engine 1: LAMEq-X (Latency-Adjusted Memory-Egalitarian Quanta Execution) for I Protocol V5"
+readme = "../../README.md"
+keywords = ["blockchain", "consensus", "memory-hard", "sybil-resistance", "proof-of-space"]
+categories = ["algorithms", "cryptography"]
+
+[dependencies]
+# Shared cryptographic foundations
+iprotocol-crypto = { path = "../../crypto" }
+rand = { workspace = true }
+
+[dev-dependencies]
+# Testing utilities
+criterion = { workspace = true }
+rand = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = ["std", "prod"]
+std = ["iprotocol-crypto/std"]
+prod = []        # Production hardness parameters
+tiny = []        # Test/integration-sized hardness
+vectorized = []  # Enable SIMD optimizations
+parallel = []    # Enable parallel processing
+
+# Ensure mutual exclusion between prod and tiny
+[package.metadata.docs.rs]
+features = ["std", "prod"]

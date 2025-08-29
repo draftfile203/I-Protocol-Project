@@ -1,0 +1,56 @@
+[package]
+name = "iprotocol-examples"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Examples and demonstrations for I Protocol V5"
+readme = "../README.md"
+keywords = ["blockchain", "examples", "demonstrations", "protocol", "tutorial"]
+categories = ["algorithms", "development-tools"]
+
+[dependencies]
+# Core dependencies
+
+# Cryptography
+sha3 = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+bincode = { workspace = true }
+
+# Utilities
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Async support
+tokio = { workspace = true }
+
+# Logging
+log = { workspace = true }
+env_logger = { workspace = true }
+
+# CLI support
+clap = { version = "4.0", features = ["derive"] }
+hex = "0.4"
+
+# All engine dependencies
+iprotocol-vdf = { path = "../engines/vdf" }
+iprotocol-lameqx = { path = "../engines/lameqx" }
+iprotocol-pada = { path = "../engines/pada" }
+iprotocol-mars = { path = "../engines/mars" }
+iprotocol-tokenomics = { path = "../engines/tokenomics" }
+iprotocol-integration = { path = "../integration" }
+iprotocol-crypto = { path = "../crypto" }
+
+[features]
+default = ["std"]
+std = []
+
+# Example binaries
+[[bin]]
+name = "simple_validator"
+path = "src/bin/simple_validator.rs"

@@ -1,0 +1,758 @@
+Below is the **perfected blueprint** for **Engine 1 — LAMEq-X (Latency-Adjusted Memory-Egalitarian Quanta Execution)**, written to be **byte-precise**, **production-grade**, and **coherent** with the other engines:
+
+* **Engine 2 (VDF)** provides `vdf_y_edge` per slot; LAMEq-X derives its per-slot, per-key seed from the **parent slot’s** `vdf_y_edge`.
+* **Engine 3 (MARS)** validates headers by **pure equalities**; LAMEq-X exposes only the participation set `P_s` (and an optional `part_root_s`) to any consumer; MARS does not need LAMEq-X to validate a header.
+* **Engine 4 (PADA)** is independent of LAMEq-X; both can co-exist cleanly in the 0–100 ms / 100–1000 ms pipeline.
+
+Everything below is defined so that **independent implementations agree bit-for-bit**.
+
+---
+
+# Engine 1 — LAMEq-X
+
+**Latency-Adjusted Memory-Egalitarian Quanta Execution**
+**Production blueprint (byte-precise, Rust-ready pseudocode).**
+**Pipeline alignment:** Provers compute during **settlement** of slot *s−1* (≈100–1000 ms). Validators verify in **finality** of slot *s* (0–100 ms).
+
+---
+
+## 1. Scope & Goal
+
+**Goal:** Impose a **per-slot, per-public-key Sybil cost** dominated by **main-memory bandwidth**, with verifier work being deterministic equality checks and Merkle checks that fit well within the 0–100 ms window.
+
+**Outputs per slot `s`:**
+
+* **Participation Set `P_s`**: the lexicographically-sorted vector of `PK` that produced a valid proof bound to slot `s`.
+* **Optional `part_root_s`**: Merkle root commitment over `P_s` (deterministic layout).
+
+No stake, committees, or trusted time. One submission per `(slot, pk)`. All hashing is domain-separated and length-framed.
+
+---
+
+## 2. Consensus Constants (LAMEq-X v1)
+
+```text
+LQX_VERSION          = 1
+
+MEM_MIB              = 512                       // RAM target per prover instance
+LABEL_BYTES          = 32                        // SHA3-256 output width
+N_LABELS             = (MEM_MIB * 2^20) / LABEL_BYTES
+                     = 512 * 1,048,576 / 32
+                     = 16,777,216                // 2^24 labels
+
+PASSES               = 3                         // full-array diffusion passes
+DEPS                 = 2                         // two parents per update (J,K)
+CHALLENGES_Q         = 96                        // residual cheat bound ≈ 2^-96
+MERKLE_ARITY         = 2                         // binary Merkle
+
+MAX_PARTREC_SIZE     = 600,000 bytes             // serialized PartRec DoS cap
+MAX_SUBMISSIONS_PK   = 1                         // per-slot, per-pk submission
+```
+
+**Pipeline** (for target slot `s`):
+
+* Seed input is the canonical **parent beacon**: `y_edge_{s-1}` from Engine 2.
+* **Proving**: during settlement of slot `s−1` (≈100–1000 ms), prover fills RAM, computes Merkle root, opens `Q` challenges, signs the transcript, and submits `PartRec` **targeting `slot = s`**.
+* **Verification**: validators verify `PartRec` in the 0–100 ms window of slot `s`, deduplicate by `pk`, sort, and publish/hand off `P_s` (and optionally `part_root_s`).
+
+---
+
+## 3. Encodings, Domain Separation, and Notation (Normative)
+
+* All integers are **little-endian fixed width**.
+* `LE(x, W)` → exactly `W` bytes (no overlong encodings).
+* `Hash256 = [u8; 32]`.
+* **Domain-tagged SHA3-256 with length framing**:
+
+```
+H(tag_ascii, [p1, p2, ...]) =
+    SHA3_256( UTF8(tag_ascii) || Σ ( LE(|pi|,8) || pi ) )
+```
+
+* **Binary Merkle (duplicate last if odd)**:
+
+  * Leaf: `H("merkle.leaf", payload)`
+  * Node: `H("merkle.node", L || R)`
+  * Empty: `H("merkle.empty", [])`
+* **Indexing**:
+
+  * Label array indices are `0..N_LABELS-1`.
+  * Challenges always select `i ∈ [1..N_LABELS-1]` so `i−1` exists.
+
+**Fixed ASCII tags (normative):**
+
+```text
+"lqx.seed"         "lqx.l0"            "lqx.idx"
+"lqx.lbl"          "lqx.chal"          "lqx.partrec"
+"merkle.leaf"      "merkle.node"       "merkle.empty"
+"part.leaf"
+```
+
+---
+
+## 4. RAM-Hard Label Function
+
+Let `seed_s` be the per-slot, per-pk seed (defined in §5). The label array `L[0..N-1]` is defined as:
+
+* `L[0] = H("lqx.l0", [seed_s])`
+* For each pass `p ∈ {0..PASSES−1}` and index `i ∈ {1..N−1}`:
+
+  ```
+  J(i,p) = U64LE( H("lqx.idx", [seed_s, LE(i,8), LE(p,4), 0x00])[0..8] ) % i
+  K(i,p) = U64LE( H("lqx.idx", [seed_s, LE(i,8), LE(p,4), 0x01])[0..8] ) % i
+
+  L[i] := H("lqx.lbl", [seed_s, LE(i,8), L[i-1], L[J(i,p)], L[K(i,p)]])
+  ```
+
+**Memory bandwidth dominance.** Each update reads three 32-byte labels and writes one (≈128 B). With `N = 2^24`, traffic is ≈2 GiB per pass → ≈6 GiB total (3 passes).
+
+---
+
+## 5. Seed Binding and Deterministic Challenges
+
+### 5.1 Seed derivation (per-slot, per-key)
+
+For slot `s`, with **parent VDF beacon edge** `y_edge_{s-1}` (from Engine 2 / MARS):
+
+```
+seed_s = H("lqx.seed", [ y_edge_{s-1}, pk ])
+```
+
+This guarantees **freshness per slot** and **binding to `pk`**. There is **no grinding surface**: `y_edge_{s-1}` is already fixed by the VDF equality of the parent slot.
+
+### 5.2 Commitment
+
+The prover computes the binary Merkle root:
+
+```
+root = MerkleRoot( leaves_payload = [ L[0], L[1], ..., L[N-1] ] )
+```
+
+(where each leaf payload is exactly the 32-byte label `L[i]`).
+
+### 5.3 Challenges
+
+For `t ∈ {0..CHALLENGES_Q−1}`, define:
+
+```
+i_t = 1 + ( U64LE( H("lqx.chal",
+           [ y_edge_{s-1}, root, LE(t,4) ])[0..8] ) % (N_LABELS - 1) )
+```
+
+For each `i = i_t`, the proof must open:
+
+* `L[i]`
+* `L[i−1]`
+* `L[J(i, p_last)]` with `p_last = PASSES−1`
+* `L[K(i, p_last)]`
+
+each with a **Merkle authentication path** up to `root`.
+
+---
+
+## 6. Transcript, Signature, and PartRec (Canonical)
+
+### 6.1 Transcript to sign
+
+```
+msg = H("lqx.partrec", [
+  LE(LQX_VERSION,4),
+  pk,                   // 32
+  LE(slot,8),
+  y_edge_{s-1},         // 32
+  seed_s,               // 32
+  root                  // 32
+])
+sig = Sign(sk, msg)     // canonical, non-malleable signature scheme (e.g., Ed25519)
+```
+
+The signature scheme and its encoding must be **unique and non-malleable** (e.g., 64-byte Ed25519). Any alternative encodings are invalid.
+
+### 6.2 Canonical proof object
+
+```
+PartRec {
+  version     : u32           // == LQX_VERSION
+  slot        : u64           // target slot s
+  pk          : [u8; 32]
+  y_edge_prev : Hash256       // == y_edge_{s-1}
+  seed        : Hash256       // == H("lqx.seed", [y_edge_prev, pk])
+  root        : Hash256       // Merkle root
+
+  challenges  : Vec<Challenge> (length == CHALLENGES_Q; length-prefixed LE(4))
+
+  sig         : [u8; 64]      // signature over msg
+}
+```
+
+Each `Challenge`:
+
+```
+Challenge {
+  idx   : u64          // LE(8)  ( == i_t )
+  li    : [u8; 32]     // L[i]
+  pi    : Vec<Hash256> // Merkle path for index i (len-prefixed LE(4))
+
+  lim1  : [u8; 32]     // L[i-1]
+  pim1  : Vec<Hash256>
+
+  lj    : [u8; 32]     // L[J(i, p_last)]
+  pj    : Vec<Hash256>
+
+  lk    : [u8; 32]     // L[K(i, p_last)]
+  pk_   : Vec<Hash256> // named 'pk_' to avoid colliding with public key 'pk'
+}
+```
+
+**Canonical serialization order** is exactly the field order shown above. All variable-length vectors are encoded as `LE(len,4) || elements…`. The **serialized byte length** of the entire `PartRec` **must not exceed** `MAX_PARTREC_SIZE`.
+
+---
+
+## 7. Rust-Style Implementation (Engine-only Module)
+
+> **Note:** Replace `sha3_256` and signature verification with real libraries (e.g., `tiny-keccak`/`sha3` and `ed25519-dalek`). The code below is **byte-precise** in structure and encodings. Paths are built deterministically as specified. Comments indicate normative behavior.
+
+```rust
+// =========================== lqx.rs ===========================
+// LAMEq-X v1: RAM-hard per-slot Sybil defense
+// Provers compute during settlement of slot s-1; verification in slot s.
+// Seed input is parent VDF beacon y_edge_{s-1} (Engine 2 / MARS).
+// =============================================================
+
+#![allow(unused)]
+use alloc::vec::Vec;
+use alloc::collections::{BTreeSet};
+
+// ——— Types & hashing ————————————————————————————————————————————
+
+pub type Hash256 = [u8; 32];
+pub type PK      = [u8; 32];
+pub type Sig     = [u8; 64];
+
+#[inline]
+pub fn le_bytes<const W: usize>(mut x: u128) -> [u8; W] {
+    let mut out = [0u8; W];
+    for i in 0..W { out[i] = (x & 0xFF) as u8; x >>= 8; }
+    out
+}
+
+pub fn u64_from_le(b: &[u8]) -> u64 {
+    let mut x: u64 = 0;
+    for (i, &bi) in b.iter().take(8).enumerate() { x |= (bi as u64) << (8*i); }
+    x
+}
+
+// Replace with a real SHA3-256 implementation.
+pub fn sha3_256(_input: &[u8]) -> Hash256 { unimplemented!() }
+
+pub fn h_tag(tag: &str, parts: &[&[u8]]) -> Hash256 {
+    let mut buf = Vec::with_capacity(64);
+    buf.extend_from_slice(tag.as_bytes());
+    for p in parts {
+        let len = le_bytes::<8>(p.len() as u128);
+        buf.extend_from_slice(&len);
+        buf.extend_from_slice(p);
+    }
+    sha3_256(&buf)
+}
+
+// ——— Merkle (binary; duplicate last) ———————————————————————————
+
+#[derive(Clone)]
+pub struct MerklePath {
+    pub siblings: Vec<Hash256>, // leaf->root sibling list
+    pub index: u64,             // leaf index (0-based at leaves)
+}
+
+#[inline]
+pub fn merkle_leaf(payload: &[u8]) -> Hash256 {
+    h_tag("merkle.leaf", &[payload])
+}
+
+#[inline]
+pub fn merkle_node(l: &Hash256, r: &Hash256) -> Hash256 {
+    let mut cat = [0u8; 64];
+    cat[..32].copy_from_slice(l);
+    cat[32..].copy_from_slice(r);
+    h_tag("merkle.node", &[&cat])
+}
+
+pub fn merkle_root(leaves_payload: &[Vec<u8>]) -> Hash256 {
+    if leaves_payload.is_empty() { return h_tag("merkle.empty", &[]); }
+    let mut level: Vec<Hash256> = leaves_payload.iter().map(|p| merkle_leaf(p)).collect();
+    while level.len() > 1 {
+        if level.len() % 2 == 1 { level.push(*level.last().unwrap()); }
+        let mut next = Vec::with_capacity(level.len()/2);
+        for i in (0..level.len()).step_by(2) {
+            next.push(merkle_node(&level[i], &level[i+1]));
+        }
+        level = next;
+    }
+    level[0]
+}
+
+// Deterministic verification of a leaf payload under 'root' given a path.
+pub fn merkle_verify_leaf(root: &Hash256, leaf_payload: &[u8], path: &MerklePath) -> bool {
+    let mut h = merkle_leaf(leaf_payload);
+    let mut idx = path.index;
+    for sib in &path.siblings {
+        if idx & 1 == 0 { h = merkle_node(&h, sib); }
+        else            { h = merkle_node(sib, &h); }
+        idx >>= 1;
+    }
+    &h == root
+}
+
+// ——— Signatures (stub) ————————————————————————————————————————
+
+pub fn verify_sig(_pk: &PK, _msg: &[u8], _sig: &Sig) -> bool {
+    // Replace with Ed25519/Schnorr verification (unique, non-malleable encoding)
+    unimplemented!()
+}
+
+// ——— LQX constants ————————————————————————————————————————————
+
+pub const LQX_VERSION: u32     = 1;
+pub const MEM_MIB: usize       = 512;
+pub const LABEL_BYTES: usize   = 32;
+pub const N_LABELS: usize      = (MEM_MIB * 1024 * 1024) / LABEL_BYTES; // 16,777,216
+pub const PASSES: u32          = 3;
+pub const CHALLENGES_Q: usize  = 96;
+pub const MAX_PARTREC_SIZE: usize = 600_000;
+
+// ——— Seed, indices, and label update ———————————————————————————
+
+#[inline]
+pub fn lqx_seed(y_edge_prev: &Hash256, pk: &PK) -> Hash256 {
+    h_tag("lqx.seed", &[y_edge_prev, pk])
+}
+
+#[inline]
+fn lbl0(seed: &Hash256) -> Hash256 {
+    h_tag("lqx.l0", &[seed])
+}
+
+#[inline]
+fn idx_j(seed: &Hash256, i: u64, p: u32) -> u64 {
+    let i_le = le_bytes::<8>(i as u128);
+    let p_le = le_bytes::<4>(p as u128);
+    let b = h_tag("lqx.idx", &[seed, &i_le, &p_le, &[0x00]]);
+    let v = u64_from_le(&b[..8]);
+    if i == 0 { 0 } else { v % i }
+}
+
+#[inline]
+fn idx_k(seed: &Hash256, i: u64, p: u32) -> u64 {
+    let i_le = le_bytes::<8>(i as u128);
+    let p_le = le_bytes::<4>(p as u128);
+    let b = h_tag("lqx.idx", &[seed, &i_le, &p_le, &[0x01]]);
+    let v = u64_from_le(&b[..8]);
+    if i == 0 { 0 } else { v % i }
+}
+
+#[inline]
+fn label_update(seed: &Hash256, i: u64, l_im1: &Hash256, l_j: &Hash256, l_k: &Hash256) -> Hash256 {
+    let i_le = le_bytes::<8>(i as u128);
+    h_tag("lqx.lbl", &[seed, &i_le, l_im1, l_j, l_k])
+}
+
+// ——— Prover array (RAM fill) ————————————————————————————————————
+
+pub struct ProverArray {
+    pub labels: Vec<Hash256>, // length N_LABELS, labels[i] = L[i]
+}
+
+impl ProverArray {
+    // Deterministic in-place fill of the label array across PASSES.
+    pub fn fill(seed: &Hash256) -> Self {
+        let mut labels = Vec::with_capacity(N_LABELS);
+        labels.push(lbl0(seed));
+        // pass 0
+        for i in 1..N_LABELS {
+            let j = idx_j(seed, i as u64, 0) as usize;
+            let k = idx_k(seed, i as u64, 0) as usize;
+            let l = label_update(seed, i as u64, &labels[i-1], &labels[j], &labels[k]);
+            labels.push(l);
+        }
+        // passes 1..PASSES-1 (in place)
+        for p in 1..PASSES {
+            for i in 1..N_LABELS {
+                let j = idx_j(seed, i as u64, p) as usize;
+                let k = idx_k(seed, i as u64, p) as usize;
+                let l = label_update(seed, i as u64, &labels[i-1], &labels[j], &labels[k]);
+                labels[i] = l;
+            }
+        }
+        Self { labels }
+    }
+
+    // Deterministic Merkle root over 32-byte label payloads.
+    pub fn merkle_root(&self) -> Hash256 {
+        let mut payloads = Vec::with_capacity(N_LABELS);
+        for l in &self.labels { payloads.push(l.to_vec()); } // exact 32 bytes each
+        merkle_root(&payloads)
+    }
+}
+
+// ——— Challenge index computation ———————————————————————————————
+
+fn chal_index(y_edge_prev: &Hash256, root: &Hash256, t: u32) -> u64 {
+    let t_le = le_bytes::<4>(t as u128);
+    let b = h_tag("lqx.chal", &[y_edge_prev, root, &t_le]);
+    let v = u64_from_le(&b[..8]);
+    1 + (v % ((N_LABELS as u64) - 1))
+}
+
+// Build transcript to sign
+fn partrec_msg(version: u32, slot: u64, pk: &PK, y_edge_prev: &Hash256, seed: &Hash256, root: &Hash256) -> Hash256 {
+    let v_le = le_bytes::<4>(version as u128);
+    let s_le = le_bytes::<8>(slot as u128);
+    h_tag("lqx.partrec", &[&v_le, pk, &s_le, y_edge_prev, seed, root])
+}
+
+// ——— Challenges & proof types ———————————————————————————————————
+
+#[derive(Clone)]
+pub struct ChallengeOpen {
+    pub idx:  u64,      // i
+    pub li:   Hash256,  // L[i]
+    pub pi:   MerklePath,
+
+    pub lim1: Hash256,  // L[i-1]
+    pub pim1: MerklePath,
+
+    pub lj:   Hash256,  // L[J(i, last_pass)]
+    pub pj:   MerklePath,
+
+    pub lk:   Hash256,  // L[K(i, last_pass)]
+    pub pk_:  MerklePath,
+}
+
+pub struct PartRec {
+    pub version: u32,
+    pub slot:    u64,       // target slot s
+    pub pk:      PK,
+    pub y_edge_prev:  Hash256,   // y_edge_{s-1}
+    pub seed:    Hash256,   // H("lqx.seed", y_edge_prev, pk)
+    pub root:    Hash256,
+    pub challenges: Vec<ChallengeOpen>, // length == CHALLENGES_Q
+    pub sig:     Sig,       // signature over transcript
+}
+
+// ——— Deterministic Merkle path construction (prover) ————————————
+//
+// Build the full Merkle tree levels for deterministic path extraction.
+// This is a reference algorithm; production should use a streaming/IO-efficient
+// approach or retain minimal nodes needed for the requested paths.
+//
+fn build_tree_levels(leaves_payload: &[Vec<u8>]) -> Vec<Vec<Hash256>> {
+    let mut levels: Vec<Vec<Hash256>> = Vec::new();
+    let mut level: Vec<Hash256> = leaves_payload.iter().map(|p| merkle_leaf(p)).collect();
+    levels.push(level.clone());
+    while level.len() > 1 {
+        if level.len() % 2 == 1 { level.push(*level.last().unwrap()); }
+        let mut next = Vec::with_capacity(level.len()/2);
+        for i in (0..level.len()).step_by(2) {
+            next.push(merkle_node(&level[i], &level[i+1]));
+        }
+        levels.push(next.clone());
+        level = next;
+    }
+    levels
+}
+
+// Return MerklePath for leaf index 'idx' given full 'levels'.
+// levels[0] are leaves; levels[last] has length 1 (the root).
+fn merkle_path_for_index(levels: &[Vec<Hash256>], idx: usize) -> MerklePath {
+    let mut siblings: Vec<Hash256> = Vec::new();
+    let mut i = idx;
+    for level in &levels[..levels.len()-1] {
+        let is_last_odd_dup = (level.len() % 2 == 1) && (i == level.len()-1);
+        let sib = if i % 2 == 0 {
+            // right sibling is either i+1 or duplicate of i if odd-tail
+            if i+1 < level.len() { level[i+1] } else { level[i] }
+        } else {
+            level[i-1]
+        };
+        siblings.push(sib);
+        i /= 2;
+    }
+    MerklePath { siblings, index: idx as u64 }
+}
+
+// ——— Prover API ————————————————————————————————————————————————
+
+pub fn lqx_prove_for_slot(
+    slot: u64,                   // target slot s
+    y_edge_prev: &Hash256,       // y_edge_{s-1}
+    pk: &PK,
+    sk_sign_fn: &dyn Fn(&PK, &Hash256) -> Sig, // Ed25519/Schnorr signer
+) -> PartRec {
+    // 1) Seed
+    let seed = lqx_seed(y_edge_prev, pk);
+
+    // 2) RAM fill
+    let arr = ProverArray::fill(&seed);
+
+    // 3) Commitment (root)
+    let mut payloads = Vec::with_capacity(N_LABELS);
+    for l in &arr.labels { payloads.push(l.to_vec()); }
+    let levels = build_tree_levels(&payloads);
+    let root = *levels.last().unwrap().first().unwrap();
+
+    // 4) Challenges and openings (last pass)
+    let last_pass = PASSES - 1;
+    let mut opens: Vec<ChallengeOpen> = Vec::with_capacity(CHALLENGES_Q);
+    for t in 0..CHALLENGES_Q {
+        let i = chal_index(y_edge_prev, &root, t as u32) as usize;
+        let j = idx_j(&seed, i as u64, last_pass) as usize;
+        let k = idx_k(&seed, i as u64, last_pass) as usize;
+        // Paths
+        let pi   = merkle_path_for_index(&levels, i);
+        let pim1 = merkle_path_for_index(&levels, i-1);
+        let pj   = merkle_path_for_index(&levels, j);
+        let pkp  = merkle_path_for_index(&levels, k);
+        // Record
+        opens.push(ChallengeOpen {
+            idx:  i as u64,
+            li:   arr.labels[i],
+            pi,
+            lim1: arr.labels[i-1],
+            pim1,
+            lj:   arr.labels[j],
+            pj,
+            lk:   arr.labels[k],
+            pk_:  pkp,
+        });
+    }
+
+    // 5) Sign transcript
+    let msg = partrec_msg(LQX_VERSION, slot, pk, y_edge_prev, &seed, &root);
+    let sig = sk_sign_fn(pk, &msg);
+
+    PartRec {
+        version: LQX_VERSION,
+        slot,
+        pk: *pk,
+        y_edge_prev: *y_edge_prev,
+        seed,
+        root,
+        challenges: opens,
+        sig,
+    }
+}
+
+// ——— Verifier API ———————————————————————————————————————————————
+
+pub fn lqx_verify_partrec(rec: &PartRec, slot: u64) -> bool {
+    // Structure checks
+    if rec.version != LQX_VERSION { return false; }
+    if rec.slot != slot          { return false; }
+    if rec.challenges.len() != CHALLENGES_Q { return false; }
+
+    // Seed binding
+    let seed_expected = lqx_seed(&rec.y_edge_prev, &rec.pk);
+    if rec.seed != seed_expected { return false; }
+
+    // Transcript signature
+    let msg = partrec_msg(rec.version, rec.slot, &rec.pk, &rec.y_edge_prev, &rec.seed, &rec.root);
+    if !verify_sig(&rec.pk, &msg, &rec.sig) { return false; }
+
+    // Deterministic challenges + openings
+    let last_pass = PASSES - 1;
+    for (t, ch) in rec.challenges.iter().enumerate() {
+        let i_expected = chal_index(&rec.y_edge_prev, &rec.root, t as u32);
+        if ch.idx != i_expected { return false; }
+        let i = ch.idx;
+
+        // Recompute parent indices
+        let j = idx_j(&rec.seed, i, last_pass);
+        let k = idx_k(&rec.seed, i, last_pass);
+        if !(i > 0 && j < i && k < i) { return false; }
+
+        // Verify Merkle paths for each opened label
+        if !merkle_verify_leaf(&rec.root, &ch.li,   &MerklePath{ siblings: ch.pi.siblings.clone(),   index: i }) { return false; }
+        if !merkle_verify_leaf(&rec.root, &ch.lim1, &MerklePath{ siblings: ch.pim1.siblings.clone(), index: i-1 }) { return false; }
+        if !merkle_verify_leaf(&rec.root, &ch.lj,   &MerklePath{ siblings: ch.pj.siblings.clone(),   index: j }) { return false; }
+        if !merkle_verify_leaf(&rec.root, &ch.lk,   &MerklePath{ siblings: ch.pk_.siblings.clone(),  index: k }) { return false; }
+
+        // Verify last-pass label equation deterministically
+        let li_check = label_update(&rec.seed, i, &ch.lim1, &ch.lj, &ch.lk);
+        if li_check != ch.li { return false; }
+    }
+    true
+}
+
+// ——— Participation set & optional root ———————————————————————————
+
+pub fn build_participation_set<'a>(
+    slot: u64,
+    submissions: impl Iterator<Item=&'a PartRec>
+) -> (Vec<PK>, Hash256) {
+    // Deduplicate: one PartRec per pk (first valid wins)
+    let mut seen: BTreeSet<PK> = BTreeSet::new();
+    let mut pks: Vec<PK> = Vec::new();
+
+    for rec in submissions {
+        if rec.slot != slot { continue; }
+        if !seen.contains(&rec.pk) && lqx_verify_partrec(rec, slot) {
+            seen.insert(rec.pk);
+            pks.push(rec.pk);
+        }
+    }
+    // Lexicographic order
+    pks.sort();
+
+    // Optional participation root: deterministic Merkle over leaves
+    // leaf payload = H("part.leaf",[]) || pk
+    let leaves: Vec<Vec<u8>> = pks.iter().map(|pk| {
+        let mut leaf = Vec::with_capacity(32 + 32);
+        leaf.extend_from_slice(&h_tag("part.leaf", &[]));
+        leaf.extend_from_slice(pk);
+        leaf
+    }).collect();
+    let part_root = merkle_root(&leaves);
+
+    (pks, part_root)
+}
+```
+
+---
+
+## 8. Determinism & Canonical Serialization
+
+* The **only** accepted encodings are those defined in §3 and §6. Any deviation (e.g., different vector length encoding, alternate signature formats) is **invalid**.
+* The verifier must **reject** any `PartRec` whose **serialized length** exceeds `MAX_PARTREC_SIZE` (when the implementation uses a streaming/codec layer, enforce this before heavy work).
+* **One submission per `(slot, pk)`**. Receivers **must ignore** all later submissions from the same `pk` once a valid one has been accepted for slot `s`.
+
+---
+
+## 9. Security & Correctness
+
+* **Freshness:** `seed_s = H("lqx.seed", [y_edge_{s-1}, pk])` ties work to both the previous slot’s VDF beacon and the prover’s `pk`. No precomputation across slots; no grinding.
+* **Soundness:** Cheating requires (a) on-the-fly label recomputation for random challenges under tight time, (b) disk substitution with bandwidth ≥ DRAM, or (c) Merkle forgery. All are infeasible under standard assumptions and the time budget.
+* **Residual forgery probability:** With `Q=96`, success probability is at most about `2^-96` per submission (random-oracle model).
+* **Determinism:** All encodings and tags are fully specified; independent implementations agree bit-for-bit.
+* **Verifier work:** ≈ `Q × (4 × log2(N))` node hashes + constant label checks. For `Q=96`, `N=2^24`, this is ≈ `96 × (4 × 24) = 9,216` node hashes, comfortably sub-100 ms with optimized SHA3.
+* **DoS controls:** strict `MAX_PARTREC_SIZE`, signature verified only once per proof, drop extras per `(slot, pk)`.
+
+---
+
+## 10. Resource Profile (Reference)
+
+* **Prover:** ≈6 GiB RAM traffic per proof (three passes). RAM capacity requirement: ≥512 MiB contiguous for labels (plus working memory if building full Merkle).
+* **Verifier:** Deterministic path checks and label equation hashes; CPU-predictable. Hash batching can substantially reduce instruction overhead.
+* **Network:** Typical `PartRec` ≈300 KiB. Implementations should consider gossip aggregation, rate limits per `pk`, and early size checks.
+
+---
+
+## 11. Implementation Guidance
+
+**Hashing:**
+
+* Use a vetted SHA3-256 crate; ensure **no** accidental domain-tag truncation or encoding variance. Keep tag strings **ASCII exact**.
+
+**Signatures:**
+
+* Prefer **Ed25519** with fixed 32-byte public keys and 64-byte signatures (no DER, no optional encodings).
+* Verify against the canonical `msg` defined in §6.1.
+
+**Merkle paths:**
+
+* For production, avoid constructing full trees on large `N`. Either:
+
+  * Build layered on-the-fly with streaming, or
+  * Retain minimal side path nodes while filling labels.
+
+**Vectorization:**
+
+* SHA3 implementations with SIMD (AVX2/NEON) significantly reduce verifier time. Batch hash calls where possible (e.g., node hashing).
+
+**Optional proof-size optimizations (non-normative):**
+
+* **Higher-arity Merkle** (e.g., 4- or 8-ary) reduces path depth and proof size (at the cost of larger node hashes per step).
+* **Path de-duplication across challenges**: when multiple openings share internal nodes, serialize a compact set of unique nodes plus indices. If adopted, this must be **versioned** (not part of this v1 spec).
+
+---
+
+## 12. Inter-Engine Interfaces
+
+* **Consumes:** `y_edge_{s-1}` from **Engine 2**/**MARS** (parent header’s `vdf_y_edge`).
+* **Produces:** `P_s` (sorted vector of `PK`) and optional `part_root_s`, consumable by higher-level fairness, assignment, or accounting layers.
+* **Independent of PADA:** No admission/execution semantics are required for LAMEq-X. MARS does **not** depend on LAMEq-X to validate headers.
+
+---
+
+## 13. Conformance Checklist (Engineer-facing)
+
+* [ ] All integers LE fixed-width (`4/8/16` only where specified).
+* [ ] All domain tags exactly as specified in §3.
+* [ ] Label fill exactly as §4 across **three** passes with `DEPS=2`.
+* [ ] `seed_s = H("lqx.seed", [y_edge_{s-1}, pk])`.
+* [ ] Challenge indices as §5.3, `t ∈ [0..Q-1]`, indices in `[1..N-1]`.
+* [ ] Merkle over raw 32-byte labels; binary; duplicate last; empty = `H("merkle.empty",[])`.
+* [ ] Transcript bytes per §6.1 and signature over those bytes; reject non-canonical signatures.
+* [ ] `PartRec` serialization as §6.2; reject if size > `MAX_PARTREC_SIZE`.
+* [ ] `lqx_verify_partrec` enforces **all** equality checks and path verifications.
+* [ ] `build_participation_set` deduplicates per `pk`, sorts lexicographically, and computes `part_root_s` deterministically.
+
+---
+
+## 14. Rationale for Forklessness and Safety
+
+Given `(parent, s)` and a `pk`:
+
+* `y_edge_{s-1}` is uniquely fixed by the parent’s VDF equality (Engine 2 validated in MARS).
+* `seed_s` is unique and bound to `pk`.
+* The label array and Merkle root are deterministic functions of `seed_s`.
+* Challenge indices are deterministic functions of `(y_edge_{s-1}, root)`.
+* The transcript and signature are canonical.
+* Any deviation breaks an equality or Merkle path; the proof is invalid.
+
+Thus, for each `pk`, at most one valid `PartRec` exists per slot `s`, and the participation set `P_s` is deterministic across honest nodes.
+
+---
+
+## 15. Test Vector Guidance (Ship with Implementations)
+
+Produce at least the following vectors:
+
+1. **Single-slot prover/verifier round-trip**
+
+   * Inputs: fixed `y_edge_{s-1}`, `slot`, `pk`, fixed signature key.
+   * Outputs: `seed_s`, `L[0..N-1]` hashes for a small `N` (e.g., 2^10 for vector), `root`, `i_t` for all `t`, serialized `PartRec` bytes, and `P_s`.
+
+2. **Challenge integrity**
+
+   * Modify a single byte in one opened label and show that verification fails.
+
+3. **Merkle path tamper**
+
+   * Modify one hash in a path and show verification fails.
+
+4. **Duplicate submissions**
+
+   * Two `PartRec` for the same `(slot, pk)`; only the first valid is accepted.
+
+5. **Oversize proof**
+
+   * A `PartRec` whose encoded length exceeds `MAX_PARTREC_SIZE` is rejected pre-verification.
+
+---
+
+## 16. Endpoints (Public API Summary)
+
+* **Prover:**
+  `lqx_prove_for_slot(slot: u64, y_edge_prev: &Hash256, pk: &PK, sk_sign_fn: &dyn Fn(&PK,&Hash256)->Sig) -> PartRec`
+
+* **Verifier (per proof):**
+  `lqx_verify_partrec(rec: &PartRec, slot: u64) -> bool`
+
+* **Builder (per slot):**
+  `build_participation_set(slot: u64, submissions: impl Iterator<Item=&PartRec>) -> (Vec<PK>, Hash256)`
+
+These are sufficient for node integration.
+
+---
+
+**This LAMEq-X blueprint is complete, byte-precise, and coherent with Engines 2–4.** It specifies exact encodings, deterministic algorithms, normative constants, and a production-ready Rust-style module with unambiguous behavior.

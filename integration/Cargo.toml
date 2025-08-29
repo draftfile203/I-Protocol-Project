@@ -1,0 +1,45 @@
+[package]
+name = "iprotocol-integration"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Integration layer for I Protocol V5 engines"
+readme = "../README.md"
+keywords = ["blockchain", "integration", "protocol", "engines", "consensus"]
+categories = ["algorithms", "network-programming"]
+
+[[example]]
+name = "complete_protocol"
+path = "../examples/complete_protocol.rs"
+
+[dependencies]
+# Engine dependencies
+iprotocol-vdf = { path = "../engines/vdf" }
+iprotocol-lameqx = { path = "../engines/lameqx", features = ["tiny"] }
+iprotocol-mars = { path = "../engines/mars" }
+iprotocol-pada = { path = "../engines/pada" }
+iprotocol-tokenomics = { path = "../engines/tokenomics" }
+iprotocol-crypto = { path = "../crypto" }
+
+# Cryptography
+sha3 = "0.10"
+rand = { workspace = true }
+ed25519-dalek = { workspace = true }
+
+# Optional async support
+tokio = { version = "1.0", optional = true }
+futures = { version = "0.3", optional = true }
+
+[dev-dependencies]
+criterion = "0.5"
+tokio-test = "0.4"
+
+[features]
+default = ["std"]
+std = []
+async = ["dep:tokio", "dep:futures"]
+full-node = ["async", "std"]
+validator = ["full-node"]
+light-client = ["std"]
