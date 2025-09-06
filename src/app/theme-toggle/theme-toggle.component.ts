@@ -1,9 +1,11 @@
 import { Component, Inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { TranslateModule, TranslatePipe } from '@ngx-translate/core';
 
 @Component({
   selector: 'app-theme-toggle',
   standalone: true,
+  imports: [TranslateModule,TranslatePipe],
   templateUrl: './theme-toggle.component.html',
   styleUrls: ['./theme-toggle.component.css'],
 })

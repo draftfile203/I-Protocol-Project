@@ -1,0 +1,71 @@
+<!-- <div class="chat-window" *ngIf="isChatOpen" >
+    <div class="chat-header">
+      <h3>Chat with Bot</h3>
+      <button class="close-chat" (click)="toggleChat()">X</button>
+    </div>
+    <div class="chat-messages">
+      <div *ngFor="let message of messages">
+        <div *ngIf="message.sender === 'bot'" class="bot-message">{{ message.text }}</div>
+        <div *ngIf="message.sender === 'user'" class="user-message">{{ message.text }}</div>
+      </div>
+    </div>
+    <div class="chat-input">
+      <input [(ngModel)]="userMessage" (keyup.enter)="sendMessage()" placeholder="Type a message...">
+      <button (click)="sendMessage()">Send</button>
+    </div>
+  </div> -->
+  
+  <!-- <div class="chat-window" *ngIf="isChatOpen">
+    <div class="chat-header">
+      <h3>Chat with Bot</h3>
+      <button class="close-chat" (click)="toggleChat()">X</button>
+    </div>
+  
+    <div class="chat-messages">
+      <div *ngFor="let message of messages">
+        <div *ngIf="message.sender === 'bot'" class="bot-message">{{ message.text }}</div>
+        <div *ngIf="message.sender === 'user'" class="user-message">{{ message.text }}</div>
+      </div>
+    </div>
+  
+    <div class="faq-questions">
+      <p *ngFor="let faq of faqList" (click)="askQuestion(faq.question)" class="faq-question">
+        {{ faq.question }}
+      </p>
+    </div>
+  
+    <div class="chat-input">
+      <input [(ngModel)]="userMessage" (keyup.enter)="sendMessage()" placeholder="Type a message...">
+      <button (click)="sendMessage()">Send</button>
+    </div>
+  </div>
+   -->
+
+   <div class="chat-window" *ngIf="isChatOpen">
+    <div class="chat-header">
+      <h3>Chat with Bot</h3>
+      <button class="close-chat" (click)="toggleChat()">X</button>
+    </div>
+  
+    <div class="chat-messages">
+      <div *ngFor="let message of messages">
+        <div *ngIf="message.sender === 'bot'" class="bot-message">{{ message.text }}</div>
+        <div *ngIf="message.sender === 'user'" class="user-message">{{ message.text }}</div>
+      </div>
+    </div>
+  
+    <div class="faq-questions">
+      <p 
+        *ngFor="let faq of faqList" 
+        (click)="askQuestion(faq)" 
+        class="faq-question">
+        {{ faq.question }}
+      </p>
+    </div>
+  
+    <div class="chat-input">
+      <input [(ngModel)]="userMessage" (keyup.enter)="sendMessage()" placeholder="Type a message...">
+      <button (click)="sendMessage()">Send</button>
+    </div>
+  </div>
+  

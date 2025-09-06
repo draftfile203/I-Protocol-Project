@@ -1,0 +1,61 @@
+{
+    "HEADER": {
+      "TITLE": "Home",
+      "ABOUT": "About",
+      "CHAR": "Characters",
+      "PACKS": "Packs",
+      "REG": "Register",
+      "LOG": "Log in",
+      "COLOR": "Light Mode",
+      "COLOR2": "Dark Mode"
+    
+    },
+
+    "FOOTER": {
+      "CONTACT": "Contact us:",
+      "EMAIL": "Email",
+      "TEL": "Tel",
+      "DOWNLOAD": "DOWNLOAD THE GAME"
+    },
+
+    "ABOUT": {
+      "LORE": "Lore",
+      "LORETEXT": "The game takes place in a once-thriving, remote town called Hollowpoint, now abandoned after a mysterious event referred to as The Bleeding. Strange creatures roam the streets, and the survivors face both psychological and physical horror.A malevolent force known only as The Entity awakens once every century, feeding off fear. It manipulates the environment and those trapped within Hollowpoint, blurring the line between reality and nightmare. Each character was drawn to the town for different reasons but is now trapped. They are bound to the town by an ancient curse, forcing them to relive their worst fears over and over again unless they can break free by uncovering the truth behind The Bleeding.",
+      "ARC": "Story Arc",
+      "ARCTEXT": "The game revolves each character's journey to confront their deepest fears. They are presented with moral dilemmas, psychological manipulation, and intense survival scenarios as they piece together the puzzle behind Hollowpoints dark history and the true nature of The Bleeding.Each character's story intertwines with the others, revealing their past sins, lost connections, and how their fates are tied to breaking or continuing The Entity's cycle.",
+      "FAQ": "Frequently Asked Questions"
+    },
+
+     "CHARACTERS": {
+      "BUTTON": "Show more"
+     },
+
+     "INPUT": {
+      "EMAIL": "Email:",
+      "PASSWORD": "Password:",
+      "REGISTER": "Register",
+      "LOGIN": "Log in",
+      "VALEMAIL": "Please enter a valid email",
+      "VALPASS": "Password must be at least 6 characters"
+     },
+
+     "DOWNLOAD": {
+      "DOWN": "Download",
+      "WINDOWS": "Download for Windows",
+      "MAC": "Download for macOS"
+     },
+
+     "CART": {
+      "BUY": "Buy now"
+     },
+
+     "PAYMENT": {
+      "DET": "Payment Details",
+      "NAME": "Person Name",
+      "NUMBER": "Card Number",
+      "EXP": "Expiry",
+      "CVV": "CVV/CVC",
+      "PAY": "Pay"
+     }
+
+  }

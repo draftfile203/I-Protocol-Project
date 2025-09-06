@@ -1,8 +1,16 @@
 
 
-<div class="card">
+<div class="card" (click)="toggleBackground()" (click)="toggleOverlay()">
     <img [src]="characters.img" alt="">
     <h1>{{characters.name}}</h1>
     <p>{{characters.role}}</p>
+
+    
 </div>
+<div   *ngIf="showOverlay" (click)="toggleOverlay()" click  class="overlay">
+    <div class="background-text">
+        <p>{{characters.background}}</p> <!-- This is the text coming from the database -->
+    </div>
+    </div>
+    
 

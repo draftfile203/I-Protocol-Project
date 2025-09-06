@@ -5,12 +5,13 @@ import { CommonModule, isPlatformBrowser, NgFor, NgIf } from '@angular/common';
 import { CharactersCardComponent } from '../characters-card/characters-card.component';
 import { HeaderComponent } from '../header/header.component';
 import { FormsModule } from '@angular/forms';
+import { TranslatePipe } from '@ngx-translate/core';
 
 
 @Component({
   selector: 'app-characters',
   standalone: true,
-  imports: [NgFor,CharactersCardComponent, HeaderComponent, NgIf,CommonModule,FormsModule],
+  imports: [NgFor,CharactersCardComponent, HeaderComponent, NgIf,CommonModule,FormsModule, TranslatePipe],
   templateUrl: './characters.component.html',
   styleUrl: './characters.component.css'
 })

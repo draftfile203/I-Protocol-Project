@@ -5,12 +5,13 @@ import Swal from 'sweetalert2';
 import { AuthService } from '../services/auth.service';
 
 import { response } from 'express';
+import { TranslatePipe } from '@ngx-translate/core';
 
 
 @Component({
   selector: 'app-register',
   standalone: true,
-  imports: [ReactiveFormsModule,NgIf],
+  imports: [TranslatePipe,ReactiveFormsModule,NgIf],
   templateUrl: './register.component.html',
   styleUrl: './register.component.css'
 })
