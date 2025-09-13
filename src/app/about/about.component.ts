@@ -1,14 +1,16 @@
 import {  NgFor, NgIf } from '@angular/common';
 import { Component } from '@angular/core';
+import { TranslatePipe } from '@ngx-translate/core';
 
 @Component({
   selector: 'app-about',
   standalone: true,
-  imports: [NgIf, NgFor],
+  imports: [NgIf, NgFor,TranslatePipe],
   templateUrl: './about.component.html',
   styleUrl: './about.component.css'
 })
 export class AboutComponent {
+
   faqList = [
     { question: 'What is the main objective of the game?', answer: 'The main objective is to survive and uncover the secrets of Hollowpoint.', showAnswer: false },
     { question: 'How many characters can I play as?', answer: 'You can play as one of nine unique characters.', showAnswer: false },

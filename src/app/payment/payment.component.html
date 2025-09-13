@@ -1,23 +1,23 @@
 <section>
     <div class="container p-0">
         <div class="card px-4">
-            <h1 class="h8 py-3">Payment Details</h1>
+            <h1 class="h8 py-3">{{'PAYMENT.DET' | translate}}</h1>
             <div class="row gx-3">
                 <div class="col-12">
                     <div class="d-flex flex-column">
-                        <p class="text mb-1">Person Name</p>
+                        <p class="text mb-1">{{'PAYMENT.NAME' | translate}}</p>
                         <input [(ngModel)]="personName" class="form-control mb-3" type="text" placeholder="Name" >
                     </div>
                 </div>
                 <div class="col-12">
                     <div class="d-flex flex-column">
-                        <p class="text mb-1">Card Number</p>
+                        <p class="text mb-1">{{'PAYMENT.NUMBER' | translate}}</p>
                         <input [(ngModel)]="cardNumber" class="form-control mb-3" type="number" placeholder="1234 5678 435678">
                     </div>
                 </div>
                 <div class="col-6">
                     <div class="d-flex flex-column">
-                        <p class="text mb-1">Expiry</p>
+                        <p class="text mb-1">{{'PAYMENT.EXP' | translate}}</p>
                         <input [(ngModel)]="expiry" class="form-control mb-3" type="number" placeholder="MM/YYYY">
                     </div>
                 </div>
@@ -29,7 +29,7 @@
                 </div>
                 <div class="col-12">
                     <div class="btn btn-primary mb-3">
-                        <span (click)="pay()"  class="ps-3">Pay - ${{totalPrice}}</span>
+                        <span (click)="pay()"  class="ps-3">{{'PAYMENT.PAY' | translate}} - ${{totalPrice}}</span>
                         <span class="fas fa-arrow-right"></span>
                     </div>
                 </div>

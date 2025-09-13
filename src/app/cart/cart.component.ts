@@ -4,11 +4,12 @@ import { Pack } from '../services/pack';
 import { CartService } from '../services/cart.service';
 import Swal from 'sweetalert2';
 import { RouterLink } from '@angular/router';
+import { TranslatePipe } from '@ngx-translate/core';
 
 @Component({
   selector: 'app-cart',
   standalone: true,
-  imports: [NgFor, NgIf,RouterLink],
+  imports: [TranslatePipe,NgFor, NgIf,RouterLink],
   templateUrl: './cart.component.html',
   styleUrl: './cart.component.css'
 })

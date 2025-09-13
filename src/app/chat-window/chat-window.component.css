@@ -1,0 +1,109 @@
+.chat-window {
+    position: fixed;
+    bottom: 180px;
+    right: 20px;
+    width: 300px;
+    max-height: 400px;
+    background-color: var(--header-background);
+    border: 1px solid var(--header-background);
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    z-index: 999;
+    color: var(--text-color);
+    
+  }
+  
+  .chat-header {
+    padding: 12px;
+    background-color: var(--text-color);
+    color: var(--header-background);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+  }
+  
+  .chat-header h3 {
+    margin: 0;
+  }
+  
+  .close-chat {
+    background: none;
+    border: none;
+    color: var(--header-background);
+    font-size: 1.5rem;
+    cursor: pointer;
+  }
+  
+  .chat-messages {
+    flex-grow: 1;
+    padding: 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  
+  }
+  
+  .chat-messages .user-message {
+    text-align: right;
+    font-weight: bolder;
+  }
+  
+  .chat-messages .bot-message {
+    text-align: left;
+  }
+  
+  .chat-input {
+    padding: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .chat-input input {
+    width: 80%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+  }
+  
+  .chat-input button {
+    padding: 8px 12px;
+    background-color:var(--text-color) ;
+    color: var(--header-background);
+    border: none;
+    border-radius: 5px;
+  }
+  
+
+
+
+
+  .faq-questions {
+    margin: 10px 0;
+    padding: 10px;
+    /* background-color: var(--text-color); */
+    border-radius: 5px;
+    color: var(--text-color);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    
+  }
+  
+  .faq-question {
+    margin: 5px 0;
+    cursor: pointer;
+    color: var(--text-color);
+    background-color: rgb(102, 95, 95);
+    padding: 4px;
+    border-radius: 4px;
+  }
+  
+  .faq-question:hover {
+    background-color: gray;
+  }
